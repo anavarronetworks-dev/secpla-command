@@ -39,7 +39,7 @@ function storage(){
   return{get,set};
 }
 
-export default function App(){
+export default function Page(){
   const w=useW();const mob=w<768;
   const st=storage();
   const[projects,setProjects]=useState(()=>st.get("secpla_projects")||INIT_PROJECTS);
