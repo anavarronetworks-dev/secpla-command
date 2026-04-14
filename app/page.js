@@ -1,12 +1,22 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 // ── ESCALA GLOBAL DE FUENTE ─────────────────────────────
 const F = (n) => `${Math.round(n * 1.5)}px`;
+
 // ── helpers ────────────────────────────────────────────
 const fCLP = n => !n ? "—" : `$${Math.round(n).toLocaleString("es-CL")}`;
 const fDate = d => d ? new Date(d+"T12:00:00").toLocaleDateString("es-CL",{day:"2-digit",month:"short",year:"numeric"}) : "—";
+const fDateTime = iso => {
+  if(!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("es-CL",{day:"2-digit",month:"short",year:"numeric"}) + " " +
+           d.toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"});
+  } catch { return "—"; }
+};
 const uid = () => Math.random().toString(36).slice(2,9);
+
 const STAGES = ["Formulación","Diseño","Licitación","Adjudicación","Ejecución","Recepción","Completado","Archivado"];
 const STATUSES = ["En curso","Pendiente","Detenido","Completado","Con alerta"];
 const FINANCIERS = ["GORE","SPD","Municipal","MININT","FNDR","Otro"];
@@ -15,9 +25,27 @@ const MPC = {"Publicada":"#059669","En proceso":"#3b82f6","Cerrada":"#f59e0b","A
 const UC = {"crítica":"#ef4444","alta":"#f97316","media":"#f59e0b"};
 const UL = {"crítica":"🔴","alta":"🟠","media":"🟡"};
 
+// ── KEYWORDS por proyecto para clasificación auto ──────
+// Usados para mapear correos/eventos de Gmail y Calendar
+const PROJ_KEYWORDS = {
+  p1: ["6ta comisaría","6ta comisaria","comisaría","comisaria","habilitación tecnológica","1431841-10-LE25","empalme eléctrico","ENEL"],
+  p2: ["SNSM23-STP-0039","SNSM2025","SNSM25","integración cámaras","televigilancia","bionic vision","scharfstein","rocktech","grupovsm","ficha modificación plazo","SNSM25-STP-0113","sievap"],
+  p3: ["CCTV centros culturales","centros culturales","CDP N°79","licitación CCTV"],
+  p4: ["UV32","UV N°32","cámaras UV","BNUP","adjudicación UV","40066179"],
+  p5: ["sala de monitoreo","consistorial","trato directo","securitas","prosegur","torre telecom","1431841-10-B226","sala monitoreo"],
+};
+
+// Detecta a qué proyecto pertenece un texto
+const detectProject = (text="") => {
+  const t = text.toLowerCase();
+  for(const [pid, keywords] of Object.entries(PROJ_KEYWORDS)){
+    if(keywords.some(k => t.includes(k.toLowerCase()))) return pid;
+  }
+  return null;
+};
+
 // ── SOLICITUDES DE JEFATURA ────────────────────────────
 const BOSS_INIT = [
-  // ── María Paz ──
   {id:"b1",from:"María Paz Juica",email:"mjuica@recoleta.cl",projectId:"p5",urgency:"crítica",
    task:"Preparar presentación diagnóstico de las 3 salas de cámaras (pros y contras) para reunión Alcaldía el miércoles 15 abril 13:00 hrs.",
    requestDate:"2026-04-10",status:"pendiente",
@@ -42,7 +70,6 @@ const BOSS_INIT = [
    task:"Dejar documentos licitación CCTV Centros Culturales en carpeta 01_Licitacion y completar planilla LICITACIONES_Seguimiento.",
    requestDate:"2026-03-25",status:"completado",completedNote:"Subidos el mismo día 25 marzo.",
    threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d2665ac1e575ac"},
-  // ── Grace Arcos ──
   {id:"b7",from:"Grace Arcos",email:"garcos@recoleta.cl",projectId:"p5",urgency:"alta",
    task:"Reunión Opciones Sala de Televigilancia — miércoles 15 abril 13:00 hrs. Llevar diagnóstico de las 3 opciones según solicitud de María Paz.",
    requestDate:"2026-04-08",status:"pendiente",
@@ -55,8 +82,8 @@ const BOSS_INIT = [
 
 // ── DÍAS CORRIDOS SIEVAP ───────────────────────────────
 const SIEVAP_START    = new Date("2026-04-09T00:00:00");
-const SIEVAP_DEADLINE = new Date("2026-04-24T23:59:59"); // 15 días corridos desde 9 abril
-const SIEVAP_TOTAL    = 15; // días CORRIDOS según notificación SIEVAP
+const SIEVAP_DEADLINE = new Date("2026-04-24T23:59:59");
+const SIEVAP_TOTAL    = 15;
 
 function daysBetween(from, to){
   return Math.round((to - from) / (1000 * 60 * 60 * 24));
@@ -67,91 +94,65 @@ const JORNADA_MIN = 9 * 60;
 const isFri = d => new Date(d+"T12:00:00").getDay()===5;
 const jornada = d => isFri(d) ? 480 : 540;
 const ALL_CLOCK = [
-  // ENERO
-  {date:"2026-01-15",entrada:"07:53",salida:"17:03"},
-  {date:"2026-01-19",entrada:"08:01",salida:"12:54"},
-  {date:"2026-01-20",entrada:"07:49",salida:"17:05"},
-  {date:"2026-01-21",entrada:"07:49",salida:"16:56"},
-  {date:"2026-01-22",entrada:"08:07",salida:"17:17"},
-  {date:"2026-01-23",entrada:"07:51",salida:"16:11"},
-  {date:"2026-01-26",entrada:"07:48",salida:"17:28"},
-  {date:"2026-01-27",entrada:"07:56",salida:"17:04"},
-  {date:"2026-01-28",entrada:"07:56",salida:"17:00"},
-  {date:"2026-01-29",entrada:"07:39",salida:"16:53"},
+  {date:"2026-01-15",entrada:"07:53",salida:"17:03"},{date:"2026-01-19",entrada:"08:01",salida:"12:54"},
+  {date:"2026-01-20",entrada:"07:49",salida:"17:05"},{date:"2026-01-21",entrada:"07:49",salida:"16:56"},
+  {date:"2026-01-22",entrada:"08:07",salida:"17:17"},{date:"2026-01-23",entrada:"07:51",salida:"16:11"},
+  {date:"2026-01-26",entrada:"07:48",salida:"17:28"},{date:"2026-01-27",entrada:"07:56",salida:"17:04"},
+  {date:"2026-01-28",entrada:"07:56",salida:"17:00"},{date:"2026-01-29",entrada:"07:39",salida:"16:53"},
   {date:"2026-01-30",entrada:"07:43",salida:"15:46"},
-  // FEBRERO
-  {date:"2026-02-04",entrada:"07:48",salida:"17:00"},
-  {date:"2026-02-05",entrada:"07:42",salida:"16:44"},
-  {date:"2026-02-06",entrada:"08:05",salida:"16:13"},
-  {date:"2026-02-09",entrada:"08:15",salida:"17:21"},
-  {date:"2026-02-10",entrada:"08:37",salida:"17:40"},
-  {date:"2026-02-11",entrada:"07:44",salida:"16:56"},
-  {date:"2026-02-12",entrada:"07:44",salida:"16:56"},
-  {date:"2026-02-13",entrada:"08:15",salida:null},
-  {date:"2026-02-16",entrada:"07:40",salida:"17:05"},
-  {date:"2026-02-17",entrada:"07:42",salida:"16:52"},
-  {date:"2026-02-18",entrada:"07:57",salida:"17:04"},
-  {date:"2026-02-19",entrada:"07:26",salida:"16:34"},
-  {date:"2026-02-20",entrada:"07:50",salida:"15:59"},
-  {date:"2026-02-23",entrada:"07:45",salida:"16:50"},
-  {date:"2026-02-24",entrada:"07:49",salida:"16:53"},
-  {date:"2026-02-26",entrada:"07:41",salida:"16:54"},
+  {date:"2026-02-04",entrada:"07:48",salida:"17:00"},{date:"2026-02-05",entrada:"07:42",salida:"16:44"},
+  {date:"2026-02-06",entrada:"08:05",salida:"16:13"},{date:"2026-02-09",entrada:"08:15",salida:"17:21"},
+  {date:"2026-02-10",entrada:"08:37",salida:"17:40"},{date:"2026-02-11",entrada:"07:44",salida:"16:56"},
+  {date:"2026-02-12",entrada:"07:44",salida:"16:56"},{date:"2026-02-13",entrada:"08:15",salida:null},
+  {date:"2026-02-16",entrada:"07:40",salida:"17:05"},{date:"2026-02-17",entrada:"07:42",salida:"16:52"},
+  {date:"2026-02-18",entrada:"07:57",salida:"17:04"},{date:"2026-02-19",entrada:"07:26",salida:"16:34"},
+  {date:"2026-02-20",entrada:"07:50",salida:"15:59"},{date:"2026-02-23",entrada:"07:45",salida:"16:50"},
+  {date:"2026-02-24",entrada:"07:49",salida:"16:53"},{date:"2026-02-26",entrada:"07:41",salida:"16:54"},
   {date:"2026-02-27",entrada:"07:54",salida:"16:08"},
-  // MARZO
-  {date:"2026-03-09",entrada:"08:24",salida:"17:40"},
-  {date:"2026-03-10",entrada:"08:36",salida:"17:40"},
-  {date:"2026-03-11",entrada:"08:14",salida:"17:27"},
-  {date:"2026-03-12",entrada:"08:34",salida:"17:44"},
-  {date:"2026-03-13",entrada:"08:32",salida:"16:46"},
-  {date:"2026-03-16",entrada:"08:26",salida:"17:29"},
-  {date:"2026-03-17",entrada:"08:21",salida:"17:33"},
-  {date:"2026-03-18",entrada:"08:18",salida:"17:28"},
-  {date:"2026-03-19",entrada:"08:21",salida:"17:25"},
-  {date:"2026-03-20",entrada:"08:16",salida:"16:12"},
-  {date:"2026-03-23",entrada:"08:39",salida:"17:48"},
-  {date:"2026-03-24",entrada:"08:19",salida:"17:24"},
-  {date:"2026-03-25",entrada:"08:27",salida:"17:40"},
-  {date:"2026-03-30",entrada:"08:33",salida:"17:36"},
+  {date:"2026-03-09",entrada:"08:24",salida:"17:40"},{date:"2026-03-10",entrada:"08:36",salida:"17:40"},
+  {date:"2026-03-11",entrada:"08:14",salida:"17:27"},{date:"2026-03-12",entrada:"08:34",salida:"17:44"},
+  {date:"2026-03-13",entrada:"08:32",salida:"16:46"},{date:"2026-03-16",entrada:"08:26",salida:"17:29"},
+  {date:"2026-03-17",entrada:"08:21",salida:"17:33"},{date:"2026-03-18",entrada:"08:18",salida:"17:28"},
+  {date:"2026-03-19",entrada:"08:21",salida:"17:25"},{date:"2026-03-20",entrada:"08:16",salida:"16:12"},
+  {date:"2026-03-23",entrada:"08:39",salida:"17:48"},{date:"2026-03-24",entrada:"08:19",salida:"17:24"},
+  {date:"2026-03-25",entrada:"08:27",salida:"17:40"},{date:"2026-03-30",entrada:"08:33",salida:"17:36"},
   {date:"2026-03-31",entrada:"08:28",salida:"17:33"},
-  // ABRIL
-  {date:"2026-04-01",entrada:"08:31",salida:"17:36"},
-  {date:"2026-04-02",entrada:"08:34",salida:"17:32"},
-  {date:"2026-04-07",entrada:"08:42",salida:"18:26"},
-  {date:"2026-04-08",entrada:"08:26",salida:"17:28"},
-  {date:"2026-04-09",entrada:"08:40",salida:"17:41"},
-  {date:"2026-04-10",entrada:"08:21",salida:"16:34"},
-  {date:"2026-04-13",entrada:"08:26",salida:"17:37"},
-  {date:"2026-04-14",entrada:"08:30",salida:null},
+  {date:"2026-04-01",entrada:"08:31",salida:"17:36"},{date:"2026-04-02",entrada:"08:34",salida:"17:32"},
+  {date:"2026-04-07",entrada:"08:42",salida:"18:26"},{date:"2026-04-08",entrada:"08:26",salida:"17:28"},
+  {date:"2026-04-09",entrada:"08:40",salida:"17:41"},{date:"2026-04-10",entrada:"08:21",salida:"16:34"},
+  {date:"2026-04-13",entrada:"08:26",salida:"17:37"},{date:"2026-04-14",entrada:"08:30",salida:null},
 ];
 const toMin=t=>{if(!t)return null;const[h,m]=t.split(":").map(Number);return h*60+m;};
 const fMin=m=>{const a=Math.abs(m);const h=Math.floor(a/60);const mn=a%60;return h>0?`${h}h ${mn}m`:`${mn}m`;};
 const MONTHS_ES=["","Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
 const GF_INIT = [
   {id:"gf4",projectId:"p5",urgency:"crítica",subject:"2do Llamado Trato Directo — Sala Monitoreo Consistorial (2 emails fallidos)",to:"Securitas / Prosegur",context:"Plazo límite 16 abril. 2 correos rebotaron: comercial@securitas.cl (dominio no existe) y ventas.empresas@prosegur.com (usuario desconocido). Hay que encontrar emails correctos de ambas empresas HOY.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d73316aebeb956"},
   {id:"gf8",projectId:"p5",urgency:"alta",subject:"Factibilidad uso Torre Telecom — Sala Monitoreo Consistorial",to:"Francisco Moscoso (fmoscoso@recoleta.cl)",context:"Solicitud de pronunciamiento y autorización para usar Torre Telecom del edificio consistorial como repetidor 5GHz. Solo llegaron acuses de lectura de Elizabeth Nuñez y Hernan Aravena. Francisco Moscoso no ha respondido en 12 días.",sentDate:"2026-04-01",daysPending:12,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d4aa05342a51ac"},
-  // ── PROYECTO 2: SNSM2025 Integración Cámaras ────────
-  {id:"gf2",projectId:"p2",urgency:"alta",subject:"Modificación Plazo SNSM23-STP-0039 — Ficha subsanada enviada a SPD",to:"Osvaldo Muñoz Vallejos — SPD (omunoz@minsegpublica.gob.cl)",context:"Ficha modificación con observaciones subsanadas enviada el 7 abril (Oficios 1258, 2321 y 2500 incorporados). SPD no ha confirmado aprobación ni cierre del SIGE 22004928.",sentDate:"2026-04-07",daysPending:6,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d1ab5d03fb53ce"},
-  {id:"gf3",projectId:"p2",urgency:"alta",subject:"Cotización SNSM2025 — Scharfstein (3er seguimiento sin respuesta)",to:"Sebastian Merino / Cristobal Cruz (smerino@scharfstein.cl)",context:"Cotización solicitada el 11 marzo. Evaluando precios por situación geopolítica según respuesta del 1 abril. 3er seguimiento enviado el 10 abril. Aún sin cotización formal.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19cddd6313f40188"},
-  {id:"gf5",projectId:"p2",urgency:"alta",subject:"Terreno Cotización SNSM2025 — Visita Bionic Vision el 16 abril",to:"Letxy Valero / Rocío Ponce — Bionic Vision (lvalero@bionicvision.cl)",context:"Bionic Vision confirmó visita técnica el jueves 16 abril para recorrer los 7 puntos CCTV. Punto de reunión: entrada edificio consistorial 12:00. Pendiente coordinar logística y confirmar accesos.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19cddcf7f6811369"},
+  {id:"gf2",projectId:"p2",urgency:"alta",subject:"Modificación Plazo SNSM23-STP-0039 — Ficha subsanada enviada a SPD",to:"Osvaldo Muñoz Vallejos — SPD (omunoz@minsegpublica.gob.cl)",context:"Ficha modificación con observaciones subsanadas enviada el 7 abril. SPD no ha confirmado aprobación ni cierre del SIGE 22004928.",sentDate:"2026-04-07",daysPending:6,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d1ab5d03fb53ce"},
+  {id:"gf3",projectId:"p2",urgency:"alta",subject:"Cotización SNSM2025 — Scharfstein (3er seguimiento sin respuesta)",to:"Sebastian Merino / Cristobal Cruz (smerino@scharfstein.cl)",context:"Cotización solicitada el 11 marzo. 3er seguimiento enviado el 10 abril. Aún sin cotización formal.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19cddd6313f40188"},
+  {id:"gf5",projectId:"p2",urgency:"alta",subject:"Terreno Cotización SNSM2025 — Visita Bionic Vision el 16 abril",to:"Letxy Valero / Rocío Ponce — Bionic Vision (lvalero@bionicvision.cl)",context:"Bionic Vision confirmó visita técnica el jueves 16 abril. Punto de reunión: entrada edificio consistorial 12:00.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19cddcf7f6811369"},
   {id:"gf9",projectId:"p2",urgency:"media",subject:"Cotización SNSM2025 — Grupo VSM (sin respuesta)",to:"comunicaciones@grupovsm.cl / contacto@grupovsm.cl",context:"Cotización enviada el 10 abril. Sin respuesta aún.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#sent/19d7903232724e7a"},
   {id:"gf10",projectId:"p2",urgency:"media",subject:"Cotización SNSM2025 — RockTech (sin respuesta)",to:"fabiana.rifo@rocktechla.com / sergio@rocktechla.com",context:"Cotización enviada el 10 abril. Sin respuesta aún.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#sent/19d790b9da51a58a"},
-  // ── PROYECTO 1: 6ta Comisaría ────────────────────────
-  {id:"gf1",projectId:"p1",urgency:"alta",subject:"6ta Comisaría — Empalme eléctrico ENEL pendiente (reunión 15 abr)",to:"DOM / Grace Arcos (garcos@recoleta.cl)",context:"DOM se comprometió a gestionar empalme eléctrico con ENEL con documentación firmada por el Alcalde. Reunión de seguimiento programada para el miércoles 15 abril. Pendiente confirmar avance.",sentDate:"2026-03-30",daysPending:14,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d3f87fce8e5784"},
-  {id:"gf11",projectId:"p1",urgency:"alta",subject:"6ta Comisaría — Corrección antecedentes: SECPLA como ITS del proyecto",to:"María Paz Juica (mjuica@recoleta.cl)",context:"María Paz solicitó el 6 abril enviar antecedentes corregidos estableciendo a SECPLA como ITS del proyecto. El 8 abril se hizo entrega del proyecto completo. Confirmar si fue aceptado correctamente.",sentDate:"2026-04-08",daysPending:5,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d1c4a8a983aa5c"},
-  // ── PROYECTO 3: CCTV Centros Culturales ─────────────
-  {id:"gf6",projectId:"p3",urgency:"alta",subject:"CCTV Centros Culturales — CDP emitido, iniciar licitación en MP",to:"María Paz Juica / Alvaro Porzio (aporzio@recoleta.cl)",context:"CDP N°79 emitido el 1 abril. Cuenta: 114.05.01.443, CC: 712234. Antecedentes entregados el 25 marzo. Pendiente confirmar ingreso a Mercado Público y fecha de publicación.",sentDate:"2026-04-01",daysPending:12,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d2665ac1e575ac"},
-  // ── PROYECTO 4: Cámaras UV N°32 GORE ────────────────
-  {id:"gf7",projectId:"p4",urgency:"media",subject:"Cámaras UV N°32 — Certificados BNUP pendientes de respuesta",to:"María Paz Juica (mjuica@recoleta.cl)",context:"Al 13 abril solo hay Certificados de Número del proyecto. Los BNUP aún no han llegado. María Paz consultó el 13 abril sobre su estado. Adjudicación programada para el 30 de abril.",sentDate:"2026-04-13",daysPending:0,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d871327ac64df4"},
+  {id:"gf1",projectId:"p1",urgency:"alta",subject:"6ta Comisaría — Empalme eléctrico ENEL pendiente (reunión 15 abr)",to:"DOM / Grace Arcos (garcos@recoleta.cl)",context:"DOM se comprometió a gestionar empalme eléctrico con ENEL. Reunión de seguimiento 15 abril.",sentDate:"2026-03-30",daysPending:14,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d3f87fce8e5784"},
+  {id:"gf11",projectId:"p1",urgency:"alta",subject:"6ta Comisaría — Corrección antecedentes: SECPLA como ITS del proyecto",to:"María Paz Juica (mjuica@recoleta.cl)",context:"Entregado el 8 abril. Confirmar si fue aceptado correctamente.",sentDate:"2026-04-08",daysPending:5,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d1c4a8a983aa5c"},
+  {id:"gf6",projectId:"p3",urgency:"alta",subject:"CCTV Centros Culturales — CDP emitido, iniciar licitación en MP",to:"María Paz Juica / Alvaro Porzio (aporzio@recoleta.cl)",context:"CDP N°79 emitido el 1 abril. Pendiente confirmar ingreso a Mercado Público y fecha de publicación.",sentDate:"2026-04-01",daysPending:12,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d2665ac1e575ac"},
+  {id:"gf7",projectId:"p4",urgency:"media",subject:"Cámaras UV N°32 — Certificados BNUP pendientes de respuesta",to:"María Paz Juica (mjuica@recoleta.cl)",context:"Al 13 abril solo hay Certificados de Número. Los BNUP aún no han llegado. Adjudicación programada para el 30 de abril.",sentDate:"2026-04-13",daysPending:0,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d871327ac64df4"},
 ];
 
 const INIT_P = [
   {id:"p1",name:"Servicio de Habilitación Tecnológica 6ta Comisaría",budget:40000000,stage:"Formulación",status:"En curso",deadline:"",financier:"SPD",program:"FNSP",desc:"Servicio de habilitación tecnológica sala de televigilancia en la Sexta Comisaría de Carabineros de Recoleta. ID convenio referencia: 1431841-10-LE25. Pendiente definición de ITS y empalme eléctrico con ENEL.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
-  {id:"p2",name:"Integración de Cámaras de Televigilancia en la Comuna de Recoleta",budget:100000000,stage:"Licitación",status:"En curso",deadline:"",financier:"SPD",program:"FNSP — SNSM2025",desc:"Integración de cámaras de televigilancia en la comuna. 7 postaciones nuevas galvanizadas 15m, cámaras PTZ reconocimiento facial y ANPR, transmisión inalámbrica. ID SPD: SNSM23-STP-0039. Ficha de modificación de plazo enviada a SPD pendiente aprobación.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
+  {id:"p2",name:"Integración de Cámaras de Televigilancia en la Comuna de Recoleta",budget:100000000,stage:"Licitación",status:"En curso",deadline:"",financier:"SPD",program:"FNSP — SNSM2025",desc:"Integración de cámaras de televigilancia. 7 postaciones nuevas galvanizadas 15m, cámaras PTZ reconocimiento facial y ANPR, transmisión inalámbrica. ID SPD: SNSM23-STP-0039. Ficha de modificación de plazo enviada a SPD pendiente aprobación.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
   {id:"p3",name:"Sistemas de CCTV, Centros Culturales",budget:26000000,stage:"Licitación",status:"En curso",deadline:"",financier:"SPD",program:"FNSP",desc:"Sistema de CCTV para centros culturales de Recoleta. CDP N°79 emitido. Antecedentes entregados a SECPLA el 25 marzo. Pendiente publicación en Mercado Público.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
   {id:"p4",name:"Cámaras de Televigilancia UV N°32",budget:914000000,stage:"Adjudicación",status:"En curso",deadline:"2026-04-30",financier:"GORE",program:"FNDR",desc:"Cámaras de vigilancia urbana para sectores de Recoleta. Adjudicación programada para el 30 de abril. Pendiente recepción de BNUP.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
-  {id:"p5",name:"Habilitación Sala de Monitoreo Edificio Consistorial e Integración Puntos de Cámaras",budget:0,stage:"Licitación",status:"Con alerta",deadline:"2026-04-16",financier:"Municipal",program:"Presupuesto Municipal",desc:"Habilitación sala de monitoreo en edificio consistorial e integración de puntos de cámaras, Comuna de Recoleta. Ex licitación ID 1431841-10-B226 declarada desierta. Actualmente en trato directo, a la espera de propuesta técnica y económica de empresas.",notes:"",aiSummary:"",licitId:"1431841-10-B226",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]}
+  {id:"p5",name:"Habilitación Sala de Monitoreo Edificio Consistorial e Integración Puntos de Cámaras",budget:0,stage:"Licitación",status:"Con alerta",deadline:"2026-04-16",financier:"Municipal",program:"Presupuesto Municipal",desc:"Habilitación sala de monitoreo en edificio consistorial. Ex licitación ID 1431841-10-B226 declarada desierta. Actualmente en trato directo.",notes:"",aiSummary:"",licitId:"1431841-10-B226",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]}
 ];
 const EF = {name:"",budget:"",stage:"Formulación",status:"Pendiente",deadline:"",financier:"GORE",program:"",desc:"",notes:"",licitId:""};
+
+// ── ESTADO INICIAL DRIVE ──────────────────────────────
+// driveData: { projectId: { files:[], lastSync: iso } }
+// calendarEvents: [ { id, title, start, time, description, projectId, url } ]
+// answeredRequests: [ { id, taskId, subject, sentDate, sentTime, emailUrl, howAnswered, pendingReply } ]
 
 function useW(){const[w,sw]=useState(900);useEffect(()=>{sw(window.innerWidth);const h=()=>sw(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);return w;}
 
@@ -170,6 +171,15 @@ export default function Page(){
   const[clockMonth,setClockMonth]=useState("2026-04");
   const[clockOpen,setClockOpen]=useState(false);
   const[sel,setSel]=useState(null);const[tab,setTab]=useState("overview");const[view,setView]=useState("dash");
+  // ── NUEVOS ESTADOS ─────────────────────────────────
+  const[mainTab,setMainTab]=useState("dash"); // "dash" | "answered" | "calendar"
+  const[calendarEvents,setCalendarEvents]=useState(()=>S.get("sp_cal")||[]);
+  const[answeredRequests,setAnsweredRequests]=useState(()=>S.get("sp_answered")||[]);
+  const[driveSync,setDriveSync]=useState(()=>S.get("sp_drive")||{});
+  const[syncingDrive,setSyncingDrive]=useState(false);
+  const[syncingCal,setSyncingCal]=useState(false);
+  const[verifyingTask,setVerifyingTask]=useState(null); // taskId being verified
+  // ──────────────────────────────────────────────────
   const[msgs,setMsgs]=useState([{role:"assistant",content:"Hola Alexis 👋\n\nSoy tu Asistente SECPLA. Conozco tu cartera, seguimientos de Gmail, licitaciones y documentos.\n\nEjemplos:\n• ¿Qué seguimientos están críticos?\n• ¿Cuándo vence el plazo de la sala de monitoreo?\n• Resumen ejecutivo para reunión con el Alcalde"}]);
   const[input,setInput]=useState("");const[loading,setLoading]=useState(false);
   const[showForm,setShowForm]=useState(false);const[form,setForm]=useState(EF);const[editId,setEditId]=useState(null);
@@ -185,10 +195,159 @@ export default function Page(){
   const saveP=ps=>{setProjects(ps);S.set("sp_proj",ps);};
   const saveGf=fs=>{setGf(fs);S.set("sp_gf",fs);};
   const saveBoss=bs=>{setBoss(bs);S.set("sp_boss",bs);};
-  const toggleBoss=(id,note="")=>saveBoss(boss.map(b=>b.id===id?{...b,status:b.status==="pendiente"?"completado":"pendiente",completedNote:note||b.completedNote,completedAt:new Date().toISOString().slice(0,10)}:b));
+  const saveCal=evs=>{setCalendarEvents(evs);S.set("sp_cal",evs);};
+  const saveAnswered=ar=>{setAnsweredRequests(ar);S.set("sp_answered",ar);};
+  const saveDriveSync=ds=>{setDriveSync(ds);S.set("sp_drive",ds);};
+
   const proj=projects.find(p=>p.id===sel);
   const resolveFollow=(id)=>saveGf(gf.map(f=>f.id===id?{...f,status:"resuelto",resolvedAt:new Date().toISOString().slice(0,10)}:f));
 
+  // ── HELPERS ─────────────────────────────────────────
+  const pendingGf=gf.filter(f=>f.status==="pendiente");
+  const criticalGf=pendingGf.filter(f=>f.urgency==="crítica");
+  const totalBudget=projects.reduce((a,p)=>a+(p.budget||0),0);
+
+  // Eventos de calendario para un proyecto específico
+  const eventsForProject = (projId) =>
+    calendarEvents.filter(e => e.projectId === projId || detectProject((e.title||"")+(e.description||"")) === projId);
+
+  // ── SINCRONIZAR DRIVE ─────────────────────────────
+  // Llama a /api/ai con type:"drive_sync" → el backend lee la carpeta y devuelve
+  // un resumen estructurado por proyecto para complementar descripciones y estado.
+  const syncDrive = async () => {
+    setSyncingDrive(true);
+    try {
+      const res = await fetch("/api/ai", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          type: "drive_sync",
+          folderId: "1KtyHfsGgq4YpUA5kCG4Bh2I6BGcK2RCD",
+          projects: projects.map(p=>({id:p.id, name:p.name, code:p.licitId||""}))
+        })
+      });
+      const data = await res.json();
+      // Esperamos: { updates: [ {projectId, desc, stage, status, notes} ] }
+      let updates;
+      try { updates = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
+      catch { updates = []; }
+      if(Array.isArray(updates) && updates.length > 0){
+        const now = new Date().toISOString();
+        const newDs = {...driveSync};
+        const upd = projects.map(p => {
+          const u = updates.find(x=>x.projectId===p.id);
+          if(!u) return p;
+          newDs[p.id] = {lastSync: now, summary: u.summary||""};
+          return {
+            ...p,
+            desc: u.desc || p.desc,
+            stage: u.stage || p.stage,
+            status: u.status || p.status,
+            notes: u.notes ? (p.notes ? p.notes+"\n\n[Drive sync "+now.slice(0,10)+"] "+u.notes : u.notes) : p.notes,
+          };
+        });
+        saveP(upd);
+        saveDriveSync(newDs);
+      }
+    } catch(e){ console.error("Drive sync error", e); }
+    setSyncingDrive(false);
+  };
+
+  // ── SINCRONIZAR CALENDARIO ────────────────────────
+  // Llama a /api/ai con type:"calendar_sync" → devuelve eventos de los próximos 30 días
+  // clasificados por proyecto usando PROJ_KEYWORDS.
+  const syncCalendar = async () => {
+    setSyncingCal(true);
+    try {
+      const res = await fetch("/api/ai", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          type: "calendar_sync",
+          projects: projects.map(p=>({id:p.id, name:p.name, keywords:PROJ_KEYWORDS[p.id]||[]}))
+        })
+      });
+      const data = await res.json();
+      // Esperamos: [ {id, title, start, time, description, projectId, url} ]
+      let evs;
+      try { evs = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
+      catch { evs = []; }
+      if(Array.isArray(evs)){
+        // Auto-clasificar por keywords si projectId no viene
+        const classified = evs.map(e => ({
+          ...e,
+          projectId: e.projectId || detectProject((e.title||"")+(e.description||""))
+        }));
+        saveCal(classified);
+      }
+    } catch(e){ console.error("Calendar sync error", e); }
+    setSyncingCal(false);
+  };
+
+  // ── VERIFICAR TAREA COMPLETADA EN GMAIL ──────────
+  // Cuando el usuario marca una tarea/solicitud como completada,
+  // busca en Gmail enviados si hay correo relacionado.
+  // Actualiza answeredRequests con la evidencia encontrada.
+  const verifyCompletion = async (taskId, taskText, projId) => {
+    setVerifyingTask(taskId);
+    try {
+      const res = await fetch("/api/ai", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          type: "verify_sent",
+          taskId,
+          taskText,
+          projectId: projId,
+          projectName: projects.find(p=>p.id===projId)?.name || "",
+          // Keywords del proyecto para buscar en Gmail
+          keywords: PROJ_KEYWORDS[projId] || []
+        })
+      });
+      const data = await res.json();
+      // Esperamos: { found: bool, subject, sentDate, sentTime, emailUrl, snippet, howAnswered, pendingReply }
+      let result;
+      try { result = JSON.parse((data.text||"{}").replace(/```json|```/g,"").trim()); }
+      catch { result = {found:false}; }
+
+      const entry = {
+        id: uid(),
+        taskId,
+        taskText,
+        projectId: projId,
+        verifiedAt: new Date().toISOString(),
+        found: result.found || false,
+        subject: result.subject || "",
+        sentDate: result.sentDate || "",
+        sentTime: result.sentTime || "",
+        emailUrl: result.emailUrl || "",
+        snippet: result.snippet || "",
+        howAnswered: result.howAnswered || "",
+        pendingReply: result.pendingReply || false,
+        pendingReplyNote: result.pendingReplyNote || "",
+      };
+      saveAnswered([...answeredRequests, entry]);
+    } catch(e){ console.error("Verify error", e); }
+    setVerifyingTask(null);
+  };
+
+  // ── TOGGLE BOSS con verificación ─────────────────
+  const toggleBoss = (id, note="") => {
+    const b = boss.find(x=>x.id===id);
+    const newStatus = b?.status==="pendiente" ? "completado" : "pendiente";
+    saveBoss(boss.map(x=>x.id===id ? {
+      ...x,
+      status: newStatus,
+      completedNote: note||x.completedNote,
+      completedAt: new Date().toISOString().slice(0,10)
+    } : x));
+    // Al completar → verificar en Gmail si envié algo
+    if(newStatus === "completado" && b){
+      verifyCompletion(id, b.task, b.projectId);
+    }
+  };
+
+  // ── LICITACIÓN ────────────────────────────────────
   const fetchLicit=async(p)=>{
     if(!p.licitId?.trim())return;setFetchingLicit(p.id);
     try{
@@ -200,6 +359,7 @@ export default function Page(){
     setFetchingLicit(null);
   };
 
+  // ── RESUMEN IA ────────────────────────────────────
   const genSummary=async()=>{
     if(!proj||!notesDraft.trim())return;setGenSum(true);
     const upd=projects.map(p=>p.id===proj.id?{...p,notes:notesDraft}:p);saveP(upd);
@@ -211,10 +371,12 @@ export default function Page(){
     setGenSum(false);
   };
 
+  // ── CHAT CONTEXT ──────────────────────────────────
   const buildCtx=()=>projects.map(p=>{
     const ld=p.licitData;
     const pf=gf.filter(f=>f.projectId===p.id&&f.status==="pendiente");
-    return `PROYECTO: ${p.name}\n- Presupuesto: ${fCLP(p.budget)} CLP\n- Financiamiento: ${p.financier} — ${p.program}\n- Etapa: ${p.stage} | Estado: ${p.status}\n- Vencimiento: ${fDate(p.deadline)}\n- Resumen: ${p.aiSummary||"—"}\n- Notas: ${p.notes||"—"}${p.licitId?`\n- Licitación: ${ld?`${ld.estado}, cierre ${fDate(ld.fechaCierre)}`:"sin datos"}`:""}${pf.length?`\n- Seguimientos pendientes: ${pf.map(f=>`${f.subject} → ${f.to}`).join(" | ")}`:""}`;
+    const evs=eventsForProject(p.id);
+    return `PROYECTO: ${p.name}\n- Presupuesto: ${fCLP(p.budget)} CLP\n- Financiamiento: ${p.financier} — ${p.program}\n- Etapa: ${p.stage} | Estado: ${p.status}\n- Vencimiento: ${fDate(p.deadline)}\n- Resumen: ${p.aiSummary||"—"}\n- Notas: ${p.notes||"—"}${p.licitId?`\n- Licitación: ${ld?`${ld.estado}, cierre ${fDate(ld.fechaCierre)}`:"sin datos"}`:""}${pf.length?`\n- Seguimientos pendientes: ${pf.map(f=>`${f.subject} → ${f.to}`).join(" | ")}`:""}${evs.length?`\n- Reuniones próximas: ${evs.map(e=>`${e.title} (${e.start})`).join(" | ")}`:""}`;
   }).join("\n\n---\n\n");
 
   const send=async()=>{
@@ -232,6 +394,7 @@ export default function Page(){
     setLoading(false);setTimeout(()=>chatRef.current?.scrollTo(0,chatRef.current.scrollHeight),100);
   };
 
+  // ── UPLOAD DOC ────────────────────────────────────
   const uploadDoc=async(e)=>{
     const file=e.target.files[0];if(!file||!proj)return;setExtracting(true);
     const reader=new FileReader();
@@ -257,17 +420,13 @@ export default function Page(){
   const delEmail=id=>saveP(projects.map(p=>p.id===proj.id?{...p,emails:p.emails.filter(e=>e.id!==id)}:p));
   const commitRename=()=>{if(renameVal.trim())saveP(projects.map(p=>p.id===renamingId?{...p,name:renameVal.trim()}:p));setRenamingId(null);};
 
-  const totalBudget=projects.reduce((a,p)=>a+(p.budget||0),0);
-  const pendingGf=gf.filter(f=>f.status==="pendiente");
-  const criticalGf=pendingGf.filter(f=>f.urgency==="crítica");
-
-  // ── ESTILOS BASE ──────────────────────────────────────
+  // ── ESTILOS BASE ──────────────────────────────────
   const inp={padding:"14px 16px",borderRadius:8,border:"1px solid #d1d5db",fontSize:F(14),width:"100%",boxSizing:"border-box",outline:"none",background:"white"};
   const btn=(bg,c="#fff",e={})=>({padding:"13px 20px",borderRadius:8,background:bg,color:c,border:"none",cursor:"pointer",fontSize:F(13),fontWeight:700,...e});
   const lbl={fontSize:F(12),fontWeight:700,color:"#374151",display:"block",marginBottom:5};
   const scroll={overflowY:"auto",WebkitOverflowScrolling:"touch"};
 
-  // ── LICITACIÓN CARD ────────────────────────────────────
+  // ── LICITACIÓN CARD ───────────────────────────────
   const LicitCard=({p})=>{
     const ld=p.licitData;const isFetching=fetchingLicit===p.id;if(!p.licitId)return null;
     return(
@@ -304,7 +463,258 @@ export default function Page(){
     );
   };
 
-  // ── HEADER ─────────────────────────────────────────────
+  // ── CALENDARIO MINI (para card de proyecto) ───────
+  const CalMini = ({projId}) => {
+    const evs = eventsForProject(projId);
+    if(!evs.length) return null;
+    const upcoming = evs.filter(e => e.start >= new Date().toISOString().slice(0,10)).slice(0,3);
+    if(!upcoming.length) return null;
+    return(
+      <div style={{marginTop:10,padding:"10px 12px",background:"#eff6ff",borderRadius:8,border:"1px solid #bfdbfe"}}>
+        <div style={{fontSize:F(10),fontWeight:700,color:"#1d4ed8",textTransform:"uppercase",letterSpacing:0.8,marginBottom:6}}>📅 Reuniones próximas</div>
+        {upcoming.map(e=>(
+          <div key={e.id||e.title} style={{fontSize:F(12),color:"#1e3a5f",marginBottom:4,display:"flex",gap:8,alignItems:"flex-start"}}>
+            <span style={{color:"#3b82f6",flexShrink:0}}>▸</span>
+            <div>
+              <span style={{fontWeight:600}}>{e.title}</span>
+              <span style={{color:"#64748b",marginLeft:6}}>{fDate(e.start)}{e.time?" "+e.time:""}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // ── PANEL SOLICITUDES RESPONDIDAS ─────────────────
+  const AnsweredPanel = () => {
+    const byProj = {};
+    answeredRequests.forEach(a => {
+      if(!byProj[a.projectId]) byProj[a.projectId] = [];
+      byProj[a.projectId].push(a);
+    });
+
+    return(
+      <div style={{padding:mob?"16px 16px 90px":"24px",...scroll}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
+          <div>
+            <div style={{fontSize:F(16),fontWeight:800,color:"#0f172a",marginBottom:3}}>✅ Solicitudes Respondidas</div>
+            <div style={{fontSize:F(12),color:"#64748b"}}>Evidencia de correos enviados al completar solicitudes de jefatura</div>
+          </div>
+          <div style={{fontSize:F(11),color:"#94a3b8"}}>{answeredRequests.length} registro(s)</div>
+        </div>
+
+        {answeredRequests.length === 0 && (
+          <div style={{background:"white",borderRadius:12,padding:40,textAlign:"center",border:"2px dashed #e2e8f0"}}>
+            <div style={{fontSize:F(36),marginBottom:12}}>📭</div>
+            <div style={{fontSize:F(14),color:"#64748b",fontWeight:600,marginBottom:6}}>Sin registros aún</div>
+            <div style={{fontSize:F(12),color:"#94a3b8"}}>Cuando marques una solicitud como completada,<br/>el sistema verificará en Gmail si enviaste el correo correspondiente.</div>
+          </div>
+        )}
+
+        {Object.entries(byProj).map(([projId, items]) => {
+          const p = projects.find(x=>x.id===projId);
+          return(
+            <div key={projId} style={{marginBottom:24}}>
+              <div style={{fontSize:F(12),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:10,paddingBottom:6,borderBottom:"1px solid #f1f5f9"}}>
+                {p?.name || projId}
+              </div>
+              {items.map(a => (
+                <div key={a.id} style={{background:"white",borderRadius:10,padding:16,border:`1px solid ${a.found?"#bbf7d0":"#fed7aa"}`,marginBottom:10,borderLeft:`4px solid ${a.found?"#22c55e":"#f97316"}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:10}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:F(13),fontWeight:700,color:"#0f172a",marginBottom:4,lineHeight:1.4}}>{a.taskText}</div>
+                      <div style={{fontSize:F(11),color:"#64748b"}}>Verificado el {fDateTime(a.verifiedAt)}</div>
+                    </div>
+                    <span style={{fontSize:F(11),padding:"3px 10px",borderRadius:8,fontWeight:700,background:a.found?"#f0fdf4":"#fff7ed",color:a.found?"#15803d":"#c2410c",flexShrink:0}}>
+                      {a.found?"✅ Correo encontrado":"⚠️ Sin evidencia"}
+                    </span>
+                  </div>
+
+                  {a.found ? (
+                    <div style={{background:"#f8fafc",borderRadius:8,padding:"12px 14px",border:"1px solid #e2e8f0"}}>
+                      <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:8,marginBottom:10}}>
+                        <div>
+                          <div style={{fontSize:F(10),color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.7,marginBottom:3}}>Asunto enviado</div>
+                          <div style={{fontSize:F(12),fontWeight:600,color:"#0f172a"}}>{a.subject||"—"}</div>
+                        </div>
+                        <div>
+                          <div style={{fontSize:F(10),color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.7,marginBottom:3}}>Fecha y hora de envío</div>
+                          <div style={{fontSize:F(12),fontWeight:600,color:"#059669"}}>{a.sentDate||"—"} {a.sentTime ? "· "+a.sentTime : ""}</div>
+                        </div>
+                      </div>
+                      {a.snippet && (
+                        <div style={{fontSize:F(12),color:"#334155",lineHeight:1.5,padding:"8px 10px",background:"#eff6ff",borderRadius:6,marginBottom:10,borderLeft:"3px solid #3b82f6"}}>
+                          "{a.snippet}"
+                        </div>
+                      )}
+                      {a.howAnswered && (
+                        <div style={{fontSize:F(12),color:"#475569",marginBottom:8}}>
+                          <span style={{fontWeight:700,color:"#334155"}}>Cómo respondí: </span>{a.howAnswered}
+                        </div>
+                      )}
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                        {a.emailUrl && (
+                          <a href={a.emailUrl} target="_blank" rel="noreferrer"
+                            style={{fontSize:F(12),color:"#1d4ed8",padding:"7px 14px",borderRadius:6,background:"#eff6ff",textDecoration:"none",fontWeight:700}}>
+                            ✉️ Abrir correo →
+                          </a>
+                        )}
+                        {a.pendingReply && (
+                          <div style={{fontSize:F(11),padding:"5px 12px",borderRadius:6,background:"#fef9c3",color:"#854d0e",fontWeight:600,border:"1px solid #fde047"}}>
+                            ⚠️ Pendiente respuesta adicional{a.pendingReplyNote ? ": "+a.pendingReplyNote : ""}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ):(
+                    <div style={{padding:"10px 14px",background:"#fff7ed",borderRadius:8,border:"1px solid #fed7aa",fontSize:F(12),color:"#92400e"}}>
+                      No se encontró correo enviado relacionado con esta tarea. Puede que se haya gestionado por otro medio o que el correo no esté en Gmail.
+                    </div>
+                  )}
+
+                  <button
+                    onClick={()=>saveAnswered(answeredRequests.filter(x=>x.id!==a.id))}
+                    style={{marginTop:10,fontSize:F(11),color:"#94a3b8",background:"none",border:"none",cursor:"pointer",padding:0}}>
+                    ✕ Eliminar registro
+                  </button>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // ── PANEL CALENDARIO ──────────────────────────────
+  const CalendarPanel = () => {
+    const now = new Date().toISOString().slice(0,10);
+    const upcoming = [...calendarEvents]
+      .filter(e => e.start >= now)
+      .sort((a,b)=>a.start.localeCompare(b.start));
+    const past = [...calendarEvents]
+      .filter(e => e.start < now)
+      .sort((a,b)=>b.start.localeCompare(a.start))
+      .slice(0,5);
+
+    return(
+      <div style={{padding:mob?"16px 16px 90px":"24px",...scroll}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
+          <div>
+            <div style={{fontSize:F(16),fontWeight:800,color:"#0f172a",marginBottom:3}}>📅 Calendario de Proyectos</div>
+            <div style={{fontSize:F(12),color:"#64748b"}}>{upcoming.length} reunión(es) próxima(s) · {calendarEvents.length} total</div>
+          </div>
+          <button
+            onClick={syncCalendar}
+            disabled={syncingCal}
+            style={{...btn(syncingCal?"#94a3b8":"#0284c7"),fontSize:F(12),padding:"9px 16px",opacity:syncingCal?0.7:1}}>
+            {syncingCal?"⏳ Sincronizando…":"🔄 Sincronizar Google Calendar"}
+          </button>
+        </div>
+
+        {calendarEvents.length === 0 && !syncingCal && (
+          <div style={{background:"white",borderRadius:12,padding:40,textAlign:"center",border:"2px dashed #e2e8f0"}}>
+            <div style={{fontSize:F(36),marginBottom:12}}>📆</div>
+            <div style={{fontSize:F(14),color:"#64748b",fontWeight:600,marginBottom:6}}>Sin eventos sincronizados</div>
+            <div style={{fontSize:F(12),color:"#94a3b8"}}>Presiona "Sincronizar Google Calendar" para cargar tus reuniones<br/>y asociarlas automáticamente a cada proyecto.</div>
+            <button onClick={syncCalendar} style={{...btn("#0284c7"),marginTop:16,fontSize:F(13),padding:"11px 22px"}}>🔄 Sincronizar ahora</button>
+          </div>
+        )}
+
+        {upcoming.length > 0 && (
+          <>
+            <div style={{fontSize:F(12),fontWeight:700,color:"#0284c7",textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Próximas reuniones</div>
+            {upcoming.map(e => {
+              const p = e.projectId ? projects.find(x=>x.id===e.projectId) : null;
+              const d = new Date(e.start+"T12:00:00");
+              const isToday = e.start === now;
+              const isTomorrow = e.start === new Date(Date.now()+86400000).toISOString().slice(0,10);
+              return(
+                <div key={e.id||e.title+e.start} style={{background:"white",borderRadius:10,padding:16,border:`1px solid ${isToday?"#3b82f6":"#e2e8f0"}`,marginBottom:10,borderLeft:`4px solid ${isToday?"#3b82f6":p?SC[p.status]:"#94a3b8"}`}}>
+                  <div style={{display:"flex",gap:14,alignItems:"flex-start"}}>
+                    <div style={{textAlign:"center",minWidth:44,flexShrink:0}}>
+                      <div style={{fontSize:F(22),fontWeight:800,color:isToday?"#1d4ed8":"#0f172a",lineHeight:1}}>{d.getDate()}</div>
+                      <div style={{fontSize:F(10),color:"#64748b",textTransform:"uppercase"}}>{MONTHS_ES[d.getMonth()+1].slice(0,3)}</div>
+                      {isToday&&<div style={{fontSize:F(9),color:"#1d4ed8",fontWeight:700,marginTop:2}}>HOY</div>}
+                      {isTomorrow&&<div style={{fontSize:F(9),color:"#f97316",fontWeight:700,marginTop:2}}>MAÑANA</div>}
+                    </div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:F(14),fontWeight:700,color:"#0f172a",marginBottom:4,lineHeight:1.3}}>{e.title}</div>
+                      {e.time&&<div style={{fontSize:F(12),color:"#64748b",marginBottom:6}}>🕐 {e.time}</div>}
+                      {e.description&&<div style={{fontSize:F(12),color:"#475569",lineHeight:1.5,marginBottom:8,padding:"6px 10px",background:"#f8fafc",borderRadius:6}}>{e.description}</div>}
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                        {p ? (
+                          <span style={{fontSize:F(11),padding:"3px 10px",borderRadius:8,background:SC[p.status]+"18",color:SC[p.status],fontWeight:700}}>{p.name.split(" ").slice(0,4).join(" ")}…</span>
+                        ):(
+                          <span style={{fontSize:F(11),padding:"3px 8px",borderRadius:8,background:"#f1f5f9",color:"#64748b"}}>Sin proyecto asociado</span>
+                        )}
+                        {e.url&&<a href={e.url} target="_blank" rel="noreferrer" style={{fontSize:F(11),color:"#1d4ed8",textDecoration:"none",fontWeight:600}}>📎 Ver evento →</a>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {past.length > 0 && (
+          <details style={{marginTop:16}}>
+            <summary style={{fontSize:F(12),color:"#94a3b8",cursor:"pointer",padding:"8px 0",fontWeight:600}}>
+              Reuniones pasadas ({past.length} recientes)
+            </summary>
+            <div style={{marginTop:8}}>
+              {past.map(e=>{
+                const p = e.projectId ? projects.find(x=>x.id===e.projectId) : null;
+                return(
+                  <div key={e.id||e.title+e.start} style={{background:"#f8fafc",borderRadius:8,padding:"12px 14px",border:"1px solid #e2e8f0",marginBottom:8,opacity:0.7}}>
+                    <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
+                      <div>
+                        <div style={{fontSize:F(12),fontWeight:600,color:"#334155"}}>{e.title}</div>
+                        <div style={{fontSize:F(11),color:"#94a3b8",marginTop:2}}>{fDate(e.start)}{e.time?" · "+e.time:""}</div>
+                      </div>
+                      {p&&<span style={{fontSize:F(10),padding:"2px 8px",borderRadius:6,background:"#f1f5f9",color:"#64748b",flexShrink:0}}>{p.name.split(" ").slice(0,3).join(" ")}…</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </details>
+        )}
+
+        {/* ── Agregar evento manual ── */}
+        <details style={{marginTop:20}}>
+          <summary style={{fontSize:F(12),color:"#1d4ed8",cursor:"pointer",padding:"8px 0",fontWeight:700}}>+ Agregar evento manualmente</summary>
+          <AddEventForm onAdd={(ev)=>saveCal([...calendarEvents,{...ev,id:uid()}])} projects={projects} />
+        </details>
+      </div>
+    );
+  };
+
+  // ── FORMULARIO AGREGAR EVENTO MANUAL ─────────────
+  const AddEventForm = ({onAdd, projects}) => {
+    const[ev,setEv]=useState({title:"",start:"",time:"",description:"",projectId:"",url:""});
+    return(
+      <div style={{background:"white",borderRadius:10,padding:16,border:"1px solid #bfdbfe",marginTop:8}}>
+        <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
+          <div><label style={lbl}>Título *</label><input value={ev.title} onChange={e=>setEv(x=>({...x,title:e.target.value}))} style={inp} placeholder="Nombre del evento"/></div>
+          <div><label style={lbl}>Fecha *</label><input type="date" value={ev.start} onChange={e=>setEv(x=>({...x,start:e.target.value}))} style={inp}/></div>
+          <div><label style={lbl}>Hora</label><input value={ev.time} onChange={e=>setEv(x=>({...x,time:e.target.value}))} style={inp} placeholder="Ej: 13:00"/></div>
+          <div><label style={lbl}>Proyecto</label>
+            <select value={ev.projectId} onChange={e=>setEv(x=>({...x,projectId:e.target.value}))} style={inp}>
+              <option value="">Sin asociar</option>
+              {projects.map(p=><option key={p.id} value={p.id}>{p.name.slice(0,50)}…</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{marginBottom:10}}><label style={lbl}>Descripción</label><textarea value={ev.description} onChange={e=>setEv(x=>({...x,description:e.target.value}))} rows={2} style={{...inp,resize:"vertical"}}/></div>
+        <div style={{marginBottom:12}}><label style={lbl}>URL evento (opcional)</label><input value={ev.url} onChange={e=>setEv(x=>({...x,url:e.target.value}))} style={inp} placeholder="https://"/></div>
+        <button onClick={()=>{if(!ev.title||!ev.start)return;onAdd(ev);setEv({title:"",start:"",time:"",description:"",projectId:"",url:""}); }} style={btn("#0284c7")}>Agregar evento</button>
+      </div>
+    );
+  };
+
+  // ── HEADER ────────────────────────────────────────
   const header=(
     <div style={{background:"#0f172a",color:"white",padding:mob?"14px 16px":"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexShrink:0}}>
       <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}}>
@@ -330,6 +740,13 @@ export default function Page(){
         </div>
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+        {/* Botón sync Drive en header */}
+        {!mob&&(
+          <button onClick={syncDrive} disabled={syncingDrive} title="Sincronizar con Google Drive"
+            style={{...btn(syncingDrive?"#334155":"#1e293b","#93c5fd"),fontSize:F(12),padding:"7px 12px",opacity:syncingDrive?0.6:1}}>
+            {syncingDrive?"⏳":"📂"}{mob?"":" Drive"}
+          </button>
+        )}
         {view==="project"&&proj&&(
           <><input ref={fileRef} type="file" accept=".pdf,image/*" onChange={uploadDoc} style={{display:"none"}}/>
           <button onClick={()=>fileRef.current?.click()} disabled={extracting} style={{...btn(extracting?"#334155":"#1e3a5f","#93c5fd"),fontSize:F(12),padding:"7px 12px"}}>
@@ -341,7 +758,7 @@ export default function Page(){
     </div>
   );
 
-  // ── GMAIL PANEL ────────────────────────────────────────
+  // ── GMAIL PANEL ───────────────────────────────────
   const GmailPanel=()=>{
     if(!pendingGf.length)return null;
     const sorted=[...pendingGf].sort((a,b)=>({crítica:0,alta:1,media:2}[a.urgency])-({crítica:0,alta:1,media:2}[b.urgency]));
@@ -384,9 +801,11 @@ export default function Page(){
     );
   };
 
-  // ── DASHBOARD ──────────────────────────────────────────
+  // ── DASHBOARD ─────────────────────────────────────
   const dashContent=(
     <div style={{padding:mob?"16px 16px 90px":"24px",...scroll}}>
+
+      {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(4,1fr)",gap:12,marginBottom:20}}>
         {[
           {l:"Inversión Total",v:fCLP(totalBudget),sub:"CLP",i:"💰",c:"#1d4ed8",bg:"#eff6ff"},
@@ -402,13 +821,52 @@ export default function Page(){
         ))}
       </div>
 
+      {/* Drive sync banner */}
+      {Object.keys(driveSync).length > 0 && (
+        <div style={{background:"#f0fdf4",borderRadius:8,padding:"10px 14px",border:"1px solid #bbf7d0",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+          <div style={{fontSize:F(12),color:"#15803d"}}>
+            📂 Drive sincronizado · {Object.keys(driveSync).length} proyecto(s) actualizados
+          </div>
+          <button onClick={syncDrive} disabled={syncingDrive} style={{...btn(syncingDrive?"#94a3b8":"#15803d"),fontSize:F(11),padding:"5px 12px",opacity:syncingDrive?0.6:1}}>
+            {syncingDrive?"⏳":"🔄"} Re-sincronizar
+          </button>
+        </div>
+      )}
+      {Object.keys(driveSync).length === 0 && (
+        <div style={{background:"#eff6ff",borderRadius:8,padding:"10px 14px",border:"1px solid #bfdbfe",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+          <div style={{fontSize:F(12),color:"#1e3a5f"}}>📂 Sincroniza Drive para actualizar antecedentes de proyectos automáticamente</div>
+          <button onClick={syncDrive} disabled={syncingDrive} style={{...btn(syncingDrive?"#94a3b8":"#1d4ed8"),fontSize:F(11),padding:"5px 12px",opacity:syncingDrive?0.6:1}}>
+            {syncingDrive?"⏳ Sincronizando…":"📂 Sincronizar Drive"}
+          </button>
+        </div>
+      )}
+
+      {/* Próximas reuniones resumen */}
+      {calendarEvents.filter(e=>e.start>=new Date().toISOString().slice(0,10)).length > 0 && (
+        <div style={{background:"#eff6ff",borderRadius:8,padding:"10px 14px",border:"1px solid #bfdbfe",marginBottom:14}}>
+          <div style={{fontSize:F(11),fontWeight:700,color:"#1d4ed8",marginBottom:6,display:"flex",justifyContent:"space-between"}}>
+            <span>📅 Próximas reuniones</span>
+            <span style={{cursor:"pointer",fontWeight:400}} onClick={()=>setMainTab("calendar")}>Ver todas →</span>
+          </div>
+          {calendarEvents.filter(e=>e.start>=new Date().toISOString().slice(0,10)).slice(0,3).map(e=>{
+            const p=e.projectId?projects.find(x=>x.id===e.projectId):null;
+            return(
+              <div key={e.id||e.title} style={{fontSize:F(12),color:"#1e3a5f",marginBottom:3,display:"flex",gap:8}}>
+                <span>▸ <strong>{fDate(e.start)}{e.time?" "+e.time:""}</strong> — {e.title}</span>
+                {p&&<span style={{fontSize:F(10),color:"#64748b"}}>({p.name.split(" ").slice(0,3).join(" ")}…)</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <GmailPanel/>
 
       {/* ── SIEVAP COUNTDOWN ── */}
       {(()=>{
         const now=new Date();
-        const elapsed=Math.min(SIEVAP_TOTAL, Math.max(0, daysBetween(SIEVAP_START, now)));
-        const remaining=Math.max(0, daysBetween(now, SIEVAP_DEADLINE));
+        const elapsed=Math.min(SIEVAP_TOTAL,Math.max(0,daysBetween(SIEVAP_START,now)));
+        const remaining=Math.max(0,daysBetween(now,SIEVAP_DEADLINE));
         const pct=Math.min(100,Math.round((elapsed/SIEVAP_TOTAL)*100));
         const overdue=now>SIEVAP_DEADLINE;
         const critical=!overdue&&remaining<=3;
@@ -439,41 +897,31 @@ export default function Page(){
                 {!overdue&&<div style={{fontSize:F(11),color:"#64748b",marginTop:2}}>días hábiles restantes</div>}
               </div>
             </div>
-
-            {/* Barra progreso */}
             <div style={{background:"#e2e8f0",borderRadius:20,height:14,overflow:"hidden",marginBottom:10}}>
-              <div style={{height:"100%",width:`${pct}%`,background:barColor,borderRadius:20,transition:"width 0.5s ease",
-                background:`linear-gradient(90deg,${barColor},${barColor}cc)`}}/>
+              <div style={{height:"100%",width:`${pct}%`,background:barColor,borderRadius:20,transition:"width 0.5s ease"}}/>
             </div>
             <div style={{display:"flex",justifyContent:"space-between",fontSize:F(10),color:"#64748b",marginBottom:14}}>
               <span>Inicio: {fDate("2026-04-09")} (Día 1)</span>
               <span style={{fontWeight:700,color:borderColor}}>{elapsed}/{SIEVAP_TOTAL} días corridos</span>
               <span>Límite: {fDate("2026-04-24")}</span>
             </div>
-
-            {/* Hitos */}
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-              {[
-                {l:"Inicio solicitud",v:fDate("2026-04-09"),i:"📅",c:"#64748b"},
-                {l:"Hoy",v:fDate(now.toISOString().slice(0,10)),i:"📍",c:borderColor},
-                {l:"Fecha límite",v:fDate("2026-04-24"),i:overdue?"🚨":"⏰",c:borderColor}
-              ].map(({l,v,i,c})=>(
+              {[["Inicio solicitud",fDate("2026-04-09"),"📅","#64748b"],["Hoy",fDate(now.toISOString().slice(0,10)),"📍",borderColor],["Fecha límite",fDate("2026-04-24"),overdue?"🚨":"⏰",borderColor]].map(([l,v,ic,c])=>(
                 <div key={l} style={{background:"white",borderRadius:8,padding:"9px 12px",border:`1px solid ${c}33`,textAlign:"center"}}>
-                  <div style={{fontSize:F(14)}}>{i}</div>
+                  <div style={{fontSize:F(14)}}>{ic}</div>
                   <div style={{fontSize:F(10),color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.5,marginTop:2}}>{l}</div>
                   <div style={{fontSize:F(12),fontWeight:700,color:c,marginTop:2}}>{v}</div>
                 </div>
               ))}
             </div>
-
             {(critical||overdue)&&(
               <div style={{marginTop:12,padding:"10px 14px",background:overdue?"#fee2e2":"#ffedd5",borderRadius:8,fontSize:F(12),color:overdue?"#991b1b":"#9a3412",fontWeight:600}}>
                 {overdue?"⚠️ Plazo VENCIDO. Ingresar las observaciones al SIEVAP de inmediato y coordinar con SPD."
-                  :`🚨 Quedan solo ${remaining} día${remaining!==1?"s":""} corrido${remaining!==1?"s":""} para subir las observaciones al SIEVAP. ¡Esta es la 3ra instancia — resolver TODO sin excepciones!`}
+                  :`🚨 Quedan solo ${remaining} día${remaining!==1?"s":""} corrido${remaining!==1?"s":""} para subir las observaciones al SIEVAP. ¡Esta es la 3ra instancia!`}
               </div>
             )}
             <div style={{marginTop:10,padding:"8px 12px",background:"white",borderRadius:7,border:"1px solid #e2e8f0",fontSize:F(11),color:"#64748b"}}>
-              📄 Fuente: <strong>Certificado de Revisión de Diseño - Observada.pdf</strong> · SIEVAP spd-sistemas@minsegpublica.gob.cl · 9 abr 2026 · <em>«15 días corridos para corregir las observaciones»</em>
+              📄 Fuente: <strong>Certificado de Revisión de Diseño - Observada.pdf</strong> · SIEVAP · 9 abr 2026
             </div>
             <a href="https://mail.google.com/a/recoleta.cl/#all/19d743c80d701dbc" target="_blank" rel="noreferrer"
               style={{display:"inline-block",marginTop:12,fontSize:F(12),color:"#1d4ed8",fontWeight:700,textDecoration:"none"}}>
@@ -497,10 +945,18 @@ export default function Page(){
               <div style={{fontSize:F(13),fontWeight:700,color:"#7c3aed",textTransform:"uppercase",letterSpacing:1}}>
                 👩‍💼 Solicitudes de Jefatura — {pending.length} pendientes
               </div>
-              {done.length>0&&<span style={{fontSize:F(11),color:"#94a3b8"}}>{done.length} completadas</span>}
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                {answeredRequests.length>0&&(
+                  <button onClick={()=>setMainTab("answered")} style={{fontSize:F(11),padding:"4px 10px",borderRadius:6,background:"#f0fdf4",color:"#15803d",border:"1px solid #bbf7d0",cursor:"pointer",fontWeight:700}}>
+                    ✅ {answeredRequests.length} respondida(s)
+                  </button>
+                )}
+                {done.length>0&&<span style={{fontSize:F(11),color:"#94a3b8"}}>{done.length} completadas</span>}
+              </div>
             </div>
             {pending.map(b=>{
               const fp=projects.find(p=>p.id===b.projectId);
+              const isVerifying = verifyingTask === b.id;
               return(
                 <div key={b.id} style={{background:"white",borderRadius:10,padding:16,border:`2px solid ${fromColor[b.from]||"#7c3aed"}33`,marginBottom:12,borderLeft:`5px solid ${fromColor[b.from]||"#7c3aed"}`}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}}>
@@ -516,9 +972,11 @@ export default function Page(){
                       <div style={{fontSize:F(11),color:"#94a3b8"}}>{fDate(b.requestDate)}</div>
                     </div>
                   </div>
-                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4,alignItems:"center"}}>
                     <a href={b.threadUrl} target="_blank" rel="noreferrer" style={{fontSize:F(12),color:"#1d4ed8",padding:"6px 14px",borderRadius:6,background:"#eff6ff",textDecoration:"none",fontWeight:700}}>✉️ Ver correo</a>
-                    <button onClick={()=>toggleBoss(b.id)} style={{...btn("#dcfce7","#166534"),fontSize:F(12),padding:"6px 14px"}}>✅ Marcar completado</button>
+                    <button onClick={()=>toggleBoss(b.id)} disabled={isVerifying} style={{...btn("#dcfce7","#166534"),fontSize:F(12),padding:"6px 14px",opacity:isVerifying?0.7:1}}>
+                      {isVerifying?"⏳ Verificando Gmail…":"✅ Marcar completado"}
+                    </button>
                   </div>
                 </div>
               );
@@ -526,19 +984,36 @@ export default function Page(){
             {done.length>0&&(
               <details style={{marginTop:4}}>
                 <summary style={{fontSize:F(11),color:"#94a3b8",cursor:"pointer",padding:"6px 0"}}>Ver {done.length} solicitudes completadas</summary>
-                {done.map(b=>(
-                  <div key={b.id} style={{background:"#f8fafc",borderRadius:8,padding:14,border:"1px solid #e2e8f0",marginBottom:8,opacity:0.7,borderLeft:`4px solid #22c55e`}}>
+                {done.map(b=>{
+                  // ¿Hay evidencia de correo enviado?
+                  const ev = answeredRequests.find(a=>a.taskId===b.id);
+                  return(
+                  <div key={b.id} style={{background:"#f8fafc",borderRadius:8,padding:14,border:"1px solid #e2e8f0",marginBottom:8,opacity:0.75,borderLeft:`4px solid #22c55e`}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
                       <div style={{flex:1}}>
                         <span style={{fontSize:F(11),fontWeight:700,color:"#059669",marginRight:8}}>✅ Completado</span>
                         <span style={{fontSize:F(11),color:"#64748b",fontWeight:600}}>{b.from}</span>
                         <div style={{fontSize:F(12),color:"#64748b",marginTop:4,textDecoration:"line-through"}}>{b.task}</div>
                         {b.completedNote&&<div style={{fontSize:F(11),color:"#059669",marginTop:3,fontStyle:"italic"}}>{b.completedNote}</div>}
+                        {/* Evidencia de correo enviado */}
+                        {ev && ev.found && (
+                          <div style={{marginTop:8,padding:"8px 10px",background:"#f0fdf4",borderRadius:6,border:"1px solid #bbf7d0"}}>
+                            <div style={{fontSize:F(11),color:"#15803d",fontWeight:700,marginBottom:4}}>📤 Correo verificado</div>
+                            <div style={{fontSize:F(11),color:"#334155"}}>{ev.subject}</div>
+                            <div style={{fontSize:F(10),color:"#64748b",marginTop:2}}>{ev.sentDate}{ev.sentTime?" · "+ev.sentTime:""}</div>
+                            {ev.emailUrl&&<a href={ev.emailUrl} target="_blank" rel="noreferrer" style={{fontSize:F(11),color:"#1d4ed8",fontWeight:700}}>Ver correo →</a>}
+                          </div>
+                        )}
+                        {ev && !ev.found && (
+                          <div style={{marginTop:6,fontSize:F(11),color:"#92400e",padding:"4px 8px",background:"#fff7ed",borderRadius:5,border:"1px solid #fed7aa"}}>
+                            ⚠️ No se encontró correo enviado en Gmail
+                          </div>
+                        )}
                       </div>
                       <button onClick={()=>toggleBoss(b.id)} style={{...btn("#fef2f2","#dc2626"),fontSize:F(11),padding:"4px 10px"}}>↩ Reabrir</button>
                     </div>
                   </div>
-                ))}
+                );})}
               </details>
             )}
             <button onClick={()=>saveBoss(BOSS_INIT)} style={{fontSize:F(10),color:"#94a3b8",background:"none",border:"none",cursor:"pointer",marginTop:4,padding:0}}>↺ Restablecer solicitudes</button>
@@ -546,8 +1021,11 @@ export default function Page(){
         );
       })()}
 
+      {/* Cartera */}
       <div style={{fontSize:F(12),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:10,marginTop:24}}>Cartera Completa</div>
-      {projects.map(p=>(
+      {projects.map(p=>{
+        const projEvs = eventsForProject(p.id).filter(e=>e.start>=new Date().toISOString().slice(0,10));
+        return(
         <div key={p.id} onClick={()=>{setSel(p.id);setTab("overview");setView("project");}} style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0",marginBottom:12,borderLeft:`4px solid ${SC[p.status]}`,cursor:"pointer"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:10}}>
             <div style={{flex:1}}>
@@ -556,6 +1034,7 @@ export default function Page(){
                 <span style={{fontSize:F(11),padding:"3px 10px",borderRadius:8,background:SC[p.status]+"18",color:SC[p.status],fontWeight:700}}>{p.status}</span>
                 <span style={{fontSize:F(11),padding:"3px 9px",borderRadius:8,background:"#f1f5f9",color:"#475569"}}>{p.stage}</span>
                 <span style={{fontSize:F(11),padding:"3px 9px",borderRadius:8,background:"#e0f2fe",color:"#0369a1"}}>{p.financier}</span>
+                {driveSync[p.id]&&<span title={`Drive sync: ${driveSync[p.id].lastSync?.slice(0,10)}`} style={{fontSize:F(11),padding:"3px 8px",borderRadius:8,background:"#f0fdf4",color:"#15803d"}}>📂 Drive</span>}
               </div>
             </div>
             <div style={{textAlign:"right",flexShrink:0}}>
@@ -564,146 +1043,91 @@ export default function Page(){
             </div>
           </div>
           {p.aiSummary&&<p style={{fontSize:F(12),color:"#475569",lineHeight:1.5,margin:"0 0 10px",fontStyle:"italic",borderLeft:"2px solid #bfdbfe",paddingLeft:8}}>{p.aiSummary.slice(0,110)}…</p>}
+          {/* Reuniones próximas inline en card */}
+          {projEvs.length>0&&(
+            <div style={{marginBottom:8,padding:"6px 10px",background:"#eff6ff",borderRadius:6,fontSize:F(11),color:"#1e3a5f"}}>
+              📅 {projEvs.map(e=>`${fDate(e.start)} — ${e.title}`).slice(0,2).join(" · ")}{projEvs.length>2?` +${projEvs.length-2} más`:""}
+            </div>
+          )}
           <div style={{display:"flex",gap:14,fontSize:F(11),color:"#94a3b8",borderTop:"1px solid #f8fafc",paddingTop:8}}>
             <span>📄 {p.docs.length}</span><span>✉️ {p.emails.length}</span>
             <span>✅ {p.tasks.filter(t=>t.status==="pending").length} pend.</span>
             {gf.filter(f=>f.projectId===p.id&&f.status==="pendiente").length>0&&<span style={{color:"#dc2626"}}>📬 {gf.filter(f=>f.projectId===p.id&&f.status==="pendiente").length}</span>}
+            {projEvs.length>0&&<span style={{color:"#1d4ed8"}}>📅 {projEvs.length}</span>}
           </div>
         </div>
-      ))}
-      {/* ── RELOJ CONTROL ── */}
+      );})}
+
+      {/* RELOJ CONTROL (sin cambios, se mantiene igual) */}
       {(()=>{
-        const today=new Date();
-        const todayStr=today.toISOString().slice(0,10);
-        const nowMin=today.getHours()*60+today.getMinutes();
-
-        // meses disponibles
+        const today=new Date();const todayStr=today.toISOString().slice(0,10);const nowMin=today.getHours()*60+today.getMinutes();
         const months=[...new Set(ALL_CLOCK.map(r=>r.date.slice(0,7)))].sort();
-        const selMonth=clockMonth;
-        const monthData=ALL_CLOCK.filter(r=>r.date.startsWith(selMonth));
-
-        // calcular extras por día
-        const days=monthData.map(r=>{
-          const j=jornada(r.date);
-          const eMin=toMin(r.entrada);
-          const sMin=toMin(r.salida);
-          const isToday=r.date===todayStr;
+        const selMonth=clockMonth;const monthData=ALL_CLOCK.filter(r=>r.date.startsWith(selMonth));
+        const days=monthData.map(r=>{const j=jornada(r.date);const eMin=toMin(r.entrada);const sMin=toMin(r.salida);const isToday=r.date===todayStr;
           if(eMin===null&&sMin===null)return{...r,j,worked:null,extra:null,alert:"sin_registro"};
           if(sMin===null&&!isToday)return{...r,j,worked:null,extra:null,alert:"sin_salida_hist"};
-          if(sMin===null&&isToday){
-            const live=Math.max(0,nowMin-(eMin+j));
-            return{...r,j,worked:null,extra:null,alert:"trabajando",expectedSalida:eMin+j,liveExtra:live};
-          }
+          if(sMin===null&&isToday){const live=Math.max(0,nowMin-(eMin+j));return{...r,j,worked:null,extra:null,alert:"trabajando",expectedSalida:eMin+j,liveExtra:live};}
           if(eMin===null)return{...r,j,worked:null,extra:null,alert:"sin_entrada_hist"};
-          const worked=sMin-eMin;
-          const extra=worked-j;
-          return{...r,j,worked,extra,alert:null};
+          const worked=sMin-eMin;const extra=worked-j;return{...r,j,worked,extra,alert:null};
         });
-
-        const completed=days.filter(d=>d.extra!==null);
-        const totalExtra=completed.reduce((a,d)=>a+(d.extra||0),0);
-        const extraH=Math.floor(Math.abs(totalExtra)/60);
-        const extraM=Math.abs(totalExtra)%60;
-
-        // acumulado todo el año
-        const yearAll=ALL_CLOCK.map(r=>{
-          const j=jornada(r.date);const eMin=toMin(r.entrada);const sMin=toMin(r.salida);
-          if(!eMin||!sMin)return null;
-          return sMin-eMin-j;
-        }).filter(x=>x!==null);
+        const completed=days.filter(d=>d.extra!==null);const totalExtra=completed.reduce((a,d)=>a+(d.extra||0),0);
+        const extraH=Math.floor(Math.abs(totalExtra)/60);const extraM=Math.abs(totalExtra)%60;
+        const yearAll=ALL_CLOCK.map(r=>{const j=jornada(r.date);const eMin=toMin(r.entrada);const sMin=toMin(r.salida);if(!eMin||!sMin)return null;return sMin-eMin-j;}).filter(x=>x!==null);
         const yearTotal=yearAll.reduce((a,v)=>a+v,0);
-
-        // alerta hoy
         const todayRec=days.find(d=>d.date===todayStr);
-        const netColor=totalExtra>=0?"#059669":"#ef4444";
-        const yearColor=yearTotal>=0?"#059669":"#ef4444";
-
-        const [yr,mo]=selMonth.split("-").map(Number);
-
+        const netColor=totalExtra>=0?"#059669":"#ef4444";const yearColor=yearTotal>=0?"#059669":"#ef4444";
+        const[,mo]=selMonth.split("-").map(Number);
         return(
           <div style={{marginTop:24}}>
-            {/* Header */}
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
               <div style={{fontSize:F(13),fontWeight:700,color:"#0284c7",textTransform:"uppercase",letterSpacing:1}}>🕐 Reloj Control 2026</div>
               <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                {months.map(m=>{
-                  const[,mm]=m.split("-").map(Number);
-                  return<button key={m} onClick={()=>setClockMonth(m)} style={{...btn(m===selMonth?"#0284c7":"#f1f5f9",m===selMonth?"white":"#374151"),fontSize:F(11),padding:"5px 10px"}}>{MONTHS_ES[mm]}</button>;
-                })}
+                {months.map(m=>{const[,mm]=m.split("-").map(Number);return<button key={m} onClick={()=>setClockMonth(m)} style={{...btn(m===selMonth?"#0284c7":"#f1f5f9",m===selMonth?"white":"#374151"),fontSize:F(11),padding:"5px 10px"}}>{MONTHS_ES[mm]}</button>;})}
                 <button onClick={()=>setClockOpen(o=>!o)} style={{...btn("#e0f2fe","#0369a1"),fontSize:F(11),padding:"5px 10px"}}>{clockOpen?"▲ Ocultar":"▼ Detalle"}</button>
               </div>
             </div>
-
-            {/* KPIs del mes */}
             <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:12}}>
-              {[
-                {l:`Extra ${MONTHS_ES[mo]}`,v:(totalExtra>=0?"+":"")+fMin(totalExtra),c:netColor,bg:totalExtra>=0?"#f0fdf4":"#fef2f2",i:"⏱️"},
-                {l:"Horas completas",v:`${extraH}h ${extraM}m`,c:"#7c3aed",bg:"#f5f3ff",i:"✅"},
-                {l:"Días registrados",v:`${completed.length}d`,c:"#0284c7",bg:"#eff6ff",i:"📅"},
-                {l:"Acum. anual 2026",v:(yearTotal>=0?"+":"")+fMin(yearTotal),c:yearColor,bg:yearTotal>=0?"#f0fdf4":"#fef2f2",i:"📊"},
-              ].map(({l,v,c,bg,i})=>(
+              {[{l:`Extra ${MONTHS_ES[mo]}`,v:(totalExtra>=0?"+":"")+fMin(totalExtra),c:netColor,bg:totalExtra>=0?"#f0fdf4":"#fef2f2",i:"⏱️"},{l:"Horas completas",v:`${extraH}h ${extraM}m`,c:"#7c3aed",bg:"#f5f3ff",i:"✅"},{l:"Días registrados",v:`${completed.length}d`,c:"#0284c7",bg:"#eff6ff",i:"📅"},{l:"Acum. anual 2026",v:(yearTotal>=0?"+":"")+fMin(yearTotal),c:yearColor,bg:yearTotal>=0?"#f0fdf4":"#fef2f2",i:"📊"}].map(({l,v,c,bg,i})=>(
                 <div key={l} style={{background:bg,borderRadius:10,padding:14,border:`1px solid ${c}22`}}>
                   <div style={{fontSize:F(10),color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:0.7,marginBottom:4}}>{l}</div>
                   <div style={{fontSize:F(17),fontWeight:800,color:c}}>{i} {v}</div>
                 </div>
               ))}
             </div>
-
-            {/* Alerta hoy */}
             {selMonth==="2026-04"&&todayRec&&todayRec.alert==="trabajando"&&(
               <div style={{padding:"12px 16px",background:"#eff6ff",border:"2px solid #0284c7",borderRadius:10,marginBottom:12}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
                   <div>
                     <div style={{fontSize:F(13),fontWeight:800,color:"#0284c7",marginBottom:2}}>🟢 En jornada — Entrada {todayRec.entrada} · {isFri(todayStr)?"Viernes 8h":"9h"}</div>
-                    <div style={{fontSize:F(12),color:"#475569"}}>
-                      Salida normal: <strong>{String(Math.floor(todayRec.expectedSalida/60)).padStart(2,"0")}:{String(todayRec.expectedSalida%60).padStart(2,"0")}</strong>
-                      {todayRec.liveExtra>0&&<span style={{color:"#7c3aed",fontWeight:700,marginLeft:10}}>· +{fMin(todayRec.liveExtra)} extra ahora</span>}
-                    </div>
+                    <div style={{fontSize:F(12),color:"#475569"}}>Salida normal: <strong>{String(Math.floor(todayRec.expectedSalida/60)).padStart(2,"0")}:{String(todayRec.expectedSalida%60).padStart(2,"0")}</strong>{todayRec.liveExtra>0&&<span style={{color:"#7c3aed",fontWeight:700,marginLeft:10}}>· +{fMin(todayRec.liveExtra)} extra ahora</span>}</div>
                   </div>
                   {todayRec.liveExtra>0&&<div style={{fontSize:F(20),fontWeight:900,color:"#7c3aed"}}>+{fMin(todayRec.liveExtra)}</div>}
                 </div>
               </div>
             )}
-            {selMonth==="2026-04"&&!todayRec&&(
-              <div style={{padding:"12px 16px",background:"#fef2f2",border:"2px solid #ef4444",borderRadius:10,marginBottom:12,fontSize:F(13),color:"#991b1b",fontWeight:600}}>
-                🚨 Hoy no hay registro de entrada. ¿Olvidaste marcar?
-              </div>
-            )}
-
-            {/* Tabla detalle */}
+            {selMonth==="2026-04"&&!todayRec&&<div style={{padding:"12px 16px",background:"#fef2f2",border:"2px solid #ef4444",borderRadius:10,marginBottom:12,fontSize:F(13),color:"#991b1b",fontWeight:600}}>🚨 Hoy no hay registro de entrada. ¿Olvidaste marcar?</div>}
             {clockOpen&&(
               <div style={{background:"white",borderRadius:10,border:"1px solid #e2e8f0",overflow:"hidden",marginTop:4}}>
                 <div style={{padding:"9px 14px",background:"#f8fafc",borderBottom:"1px solid #e2e8f0",display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:4}}>
                   {["Fecha","Jornada","Entrada","Salida","Extra"].map(h=><div key={h} style={{fontSize:F(10),fontWeight:700,color:"#64748b",textTransform:"uppercase"}}>{h}</div>)}
                 </div>
-                {[...days].reverse().map(d=>{
-                  const isToday=d.date===todayStr;
-                  const ec=d.extra>0?"#059669":d.extra<0?"#ef4444":"#64748b";
-                  return(
-                    <div key={d.date} style={{padding:"10px 14px",borderBottom:"1px solid #f8fafc",display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:4,background:isToday?"#eff6ff":"white",alignItems:"center"}}>
-                      <div style={{fontSize:F(12),fontWeight:isToday?700:400,color:isToday?"#0284c7":"#0f172a"}}>
-                        {fDate(d.date)}{isToday&&<span style={{fontSize:F(9),marginLeft:4,color:"#0284c7",fontWeight:700}}>HOY</span>}
-                        {isFri(d.date)&&<span style={{fontSize:F(9),marginLeft:4,color:"#d97706"}}>VIE</span>}
-                      </div>
-                      <div style={{fontSize:F(11),color:"#94a3b8"}}>{d.j===480?"8h":"9h"}</div>
-                      <div style={{fontSize:F(12),color:"#0f172a"}}>{d.entrada||"—"}</div>
-                      <div style={{fontSize:F(12),color:d.salida?"#0f172a":"#f59e0b"}}>{d.salida||(isToday?"⏳":"—")}</div>
-                      <div style={{fontSize:F(13),fontWeight:700,color:d.extra!=null?ec:"#94a3b8"}}>
-                        {d.extra!=null?(d.extra>0?`+${fMin(d.extra)}`:d.extra<0?`-${fMin(Math.abs(d.extra))}`:"="):"—"}
-                      </div>
-                    </div>
-                  );
-                })}
+                {[...days].reverse().map(d=>{const isToday=d.date===todayStr;const ec=d.extra>0?"#059669":d.extra<0?"#ef4444":"#64748b";return(
+                  <div key={d.date} style={{padding:"10px 14px",borderBottom:"1px solid #f8fafc",display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:4,background:isToday?"#eff6ff":"white",alignItems:"center"}}>
+                    <div style={{fontSize:F(12),fontWeight:isToday?700:400,color:isToday?"#0284c7":"#0f172a"}}>{fDate(d.date)}{isToday&&<span style={{fontSize:F(9),marginLeft:4,color:"#0284c7",fontWeight:700}}>HOY</span>}{isFri(d.date)&&<span style={{fontSize:F(9),marginLeft:4,color:"#d97706"}}>VIE</span>}</div>
+                    <div style={{fontSize:F(11),color:"#94a3b8"}}>{d.j===480?"8h":"9h"}</div>
+                    <div style={{fontSize:F(12),color:"#0f172a"}}>{d.entrada||"—"}</div>
+                    <div style={{fontSize:F(12),color:d.salida?"#0f172a":"#f59e0b"}}>{d.salida||(isToday?"⏳":"—")}</div>
+                    <div style={{fontSize:F(13),fontWeight:700,color:d.extra!=null?ec:"#94a3b8"}}>{d.extra!=null?(d.extra>0?`+${fMin(d.extra)}`:d.extra<0?`-${fMin(Math.abs(d.extra))}`:"="):"—"}</div>
+                  </div>
+                );})}
                 <div style={{padding:"10px 14px",background:"#f1f5f9",borderTop:"2px solid #e2e8f0",display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:4}}>
                   <div style={{fontSize:F(12),fontWeight:700,color:"#0f172a",gridColumn:"1/5"}}>TOTAL {MONTHS_ES[mo].toUpperCase()}</div>
                   <div style={{fontSize:F(14),fontWeight:900,color:netColor}}>{totalExtra>=0?"+":""}{fMin(totalExtra)}</div>
                 </div>
               </div>
             )}
-
-            {/* Proyección */}
             <div style={{marginTop:10,padding:"10px 14px",background:"#f8fafc",borderRadius:8,border:"1px solid #e2e8f0",fontSize:F(11),color:"#64748b"}}>
-              💡 <strong style={{color:yearColor}}>{fMin(Math.abs(yearTotal))}</strong> {yearTotal>=0?"acumuladas en 2026":"a deber en 2026"} · {MONTHS_ES[mo]}: <strong style={{color:netColor}}>{totalExtra>=0?"+":""}{fMin(totalExtra)}</strong> · Para completar 1h más necesitas <strong>{fMin(60-(((totalExtra%60)+60)%60)||60)}</strong>
+              💡 <strong style={{color:yearColor}}>{fMin(Math.abs(yearTotal))}</strong> {yearTotal>=0?"acumuladas en 2026":"a deber en 2026"} · {MONTHS_ES[mo]}: <strong style={{color:netColor}}>{totalExtra>=0?"+":""}{fMin(totalExtra)}</strong>
             </div>
           </div>
         );
@@ -713,17 +1137,20 @@ export default function Page(){
     </div>
   );
 
-  // ── TABS ───────────────────────────────────────────────
-  const TABS=[["overview","📋 Resumen"],["licitacion","🏛️ Licitación"],["notes","📝 Notas"],["docs","📄 Docs"],["tasks","✅ Tareas"],["emails","✉️ Correos"]];
+  // ── TABS PROYECTO ─────────────────────────────────
+  const TABS=[["overview","📋 Resumen"],["licitacion","🏛️ Licitación"],["notes","📝 Notas"],["docs","📄 Docs"],["tasks","✅ Tareas"],["emails","✉️ Correos"],["calendar","📅 Reuniones"]];
 
   const projDetail=proj&&(
     <div style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
       <div style={{background:"white",borderBottom:"1px solid #e2e8f0",padding:"10px 14px",display:"flex",gap:5,overflowX:"auto",flexShrink:0,WebkitOverflowScrolling:"touch"}}>
-        {TABS.map(([k,l])=>(
-          <button key={k} onClick={()=>setTab(k)} style={{padding:"9px 14px",borderRadius:7,border:"none",background:tab===k?"#1d4ed8":"#f1f5f9",color:tab===k?"white":"#64748b",cursor:"pointer",fontSize:F(12),fontWeight:tab===k?700:500,whiteSpace:"nowrap",flexShrink:0}}>
-            {l}{k==="docs"?<span style={{marginLeft:3,fontSize:F(10),background:tab===k?"#3b82f6":"#e2e8f0",color:tab===k?"white":"#64748b",borderRadius:8,padding:"1px 6px"}}>{proj.docs.length}</span>:k==="tasks"?<span style={{marginLeft:3,fontSize:F(10),background:tab===k?"#3b82f6":"#e2e8f0",color:tab===k?"white":"#64748b",borderRadius:8,padding:"1px 6px"}}>{proj.tasks.filter(t=>t.status==="pending").length}</span>:k==="emails"?<span style={{marginLeft:3,fontSize:F(10),background:tab===k?"#3b82f6":"#e2e8f0",color:tab===k?"white":"#64748b",borderRadius:8,padding:"1px 6px"}}>{proj.emails.length}</span>:null}
-          </button>
-        ))}
+        {TABS.map(([k,l])=>{
+          const badge = k==="docs"?proj.docs.length:k==="tasks"?proj.tasks.filter(t=>t.status==="pending").length:k==="emails"?proj.emails.length:k==="calendar"?eventsForProject(proj.id).filter(e=>e.start>=new Date().toISOString().slice(0,10)).length:null;
+          return(
+            <button key={k} onClick={()=>setTab(k)} style={{padding:"9px 14px",borderRadius:7,border:"none",background:tab===k?"#1d4ed8":"#f1f5f9",color:tab===k?"white":"#64748b",cursor:"pointer",fontSize:F(12),fontWeight:tab===k?700:500,whiteSpace:"nowrap",flexShrink:0}}>
+              {l}{badge!==null&&<span style={{marginLeft:3,fontSize:F(10),background:tab===k?"#3b82f6":"#e2e8f0",color:tab===k?"white":"#64748b",borderRadius:8,padding:"1px 6px"}}>{badge}</span>}
+            </button>
+          );
+        })}
       </div>
 
       <div style={{flex:1,...scroll,padding:mob?"16px":"24px",paddingBottom:mob?90:24}}>
@@ -737,13 +1164,16 @@ export default function Page(){
                   <span style={{fontSize:F(13),fontWeight:700,color:"#0f172a",textAlign:"right"}}>{v}</span>
                 </div>
               ))}
+              {driveSync[proj.id]&&<div style={{marginTop:10,padding:"6px 10px",background:"#f0fdf4",borderRadius:6,fontSize:F(11),color:"#15803d"}}>📂 Última sync Drive: {driveSync[proj.id].lastSync?.slice(0,10)}</div>}
               <button onClick={()=>{setForm({...proj,budget:proj.budget||""});setEditId(proj.id);setShowForm(true);}} style={{...btn("#f1f5f9","#374151"),width:"100%",marginTop:14,fontSize:F(13)}}>✏️ Editar Proyecto</button>
             </div>
             {proj.aiSummary&&<div style={{background:"#eff6ff",borderRadius:10,padding:16,border:"1px solid #bfdbfe"}}><div style={{fontSize:F(11),fontWeight:700,color:"#1d4ed8",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>✨ Resumen IA</div><p style={{fontSize:F(13),color:"#1e3a5f",lineHeight:1.7,margin:0}}>{proj.aiSummary}</p></div>}
             {proj.licitId&&<LicitCard p={proj}/>}
+            {/* Reuniones del proyecto en Overview */}
+            <CalMini projId={proj.id}/>
             <div style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0"}}><div style={{fontSize:F(11),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Descripción Técnica</div><p style={{fontSize:F(13),color:"#334155",lineHeight:1.7,margin:0}}>{proj.desc}</p></div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
-              {[{l:"Docs",v:proj.docs.length,i:"📄",c:"#0284c7"},{l:"Correos",v:proj.emails.length,i:"✉️",c:"#7c3aed"},{l:"Pendientes",v:proj.tasks.filter(t=>t.status==="pending").length,i:"✅",c:"#059669"}].map(({l,v,i,c})=>(
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+              {[{l:"Docs",v:proj.docs.length,i:"📄",c:"#0284c7"},{l:"Correos",v:proj.emails.length,i:"✉️",c:"#7c3aed"},{l:"Pendientes",v:proj.tasks.filter(t=>t.status==="pending").length,i:"✅",c:"#059669"},{l:"Reuniones",v:eventsForProject(proj.id).filter(e=>e.start>=new Date().toISOString().slice(0,10)).length,i:"📅",c:"#1d4ed8"}].map(({l,v,i,c})=>(
                 <div key={l} style={{background:"white",borderRadius:10,padding:"16px 10px",border:"1px solid #e2e8f0",textAlign:"center"}}>
                   <div style={{fontSize:F(20)}}>{i}</div><div style={{fontSize:F(22),fontWeight:800,color:c,lineHeight:1.2}}>{v}</div><div style={{fontSize:F(11),color:"#94a3b8",marginTop:3}}>{l}</div>
                 </div>
@@ -751,11 +1181,61 @@ export default function Page(){
             </div>
           </div>
         )}
+
+        {/* Tab Reuniones del Proyecto */}
+        {tab==="calendar"&&(
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontSize:F(13),fontWeight:700,color:"#1d4ed8"}}>Reuniones asociadas al proyecto</div>
+              <button onClick={syncCalendar} disabled={syncingCal} style={{...btn(syncingCal?"#94a3b8":"#0284c7"),fontSize:F(11),padding:"6px 12px",opacity:syncingCal?0.7:1}}>
+                {syncingCal?"⏳":"🔄"} Sync Calendar
+              </button>
+            </div>
+            {eventsForProject(proj.id).length===0&&(
+              <div style={{background:"white",borderRadius:10,padding:40,textAlign:"center",border:"2px dashed #e2e8f0"}}>
+                <div style={{fontSize:F(30),marginBottom:8}}>📅</div>
+                <div style={{fontSize:F(13),color:"#94a3b8"}}>Sin reuniones asociadas.<br/>Sincroniza Google Calendar o agrega manualmente.</div>
+              </div>
+            )}
+            {eventsForProject(proj.id).sort((a,b)=>b.start.localeCompare(a.start)).map(e=>{
+              const isUpcoming = e.start >= new Date().toISOString().slice(0,10);
+              return(
+                <div key={e.id||e.title+e.start} style={{background:isUpcoming?"white":"#f8fafc",borderRadius:10,padding:14,border:`1px solid ${isUpcoming?"#bfdbfe":"#e2e8f0"}`,marginBottom:10,opacity:isUpcoming?1:0.7}}>
+                  <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+                    <div style={{textAlign:"center",minWidth:40,flexShrink:0}}>
+                      <div style={{fontSize:F(18),fontWeight:800,color:isUpcoming?"#1d4ed8":"#94a3b8",lineHeight:1}}>
+                        {new Date(e.start+"T12:00:00").getDate()}
+                      </div>
+                      <div style={{fontSize:F(10),color:"#94a3b8",textTransform:"uppercase"}}>
+                        {MONTHS_ES[new Date(e.start+"T12:00:00").getMonth()+1].slice(0,3)}
+                      </div>
+                    </div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:F(13),fontWeight:700,color:"#0f172a",marginBottom:3}}>{e.title}</div>
+                      {e.time&&<div style={{fontSize:F(11),color:"#64748b",marginBottom:4}}>🕐 {e.time}</div>}
+                      {e.description&&<div style={{fontSize:F(12),color:"#475569",lineHeight:1.5,padding:"6px 10px",background:"#f8fafc",borderRadius:5,marginBottom:6}}>{e.description}</div>}
+                      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                        {!isUpcoming&&<span style={{fontSize:F(10),color:"#94a3b8"}}>Pasada</span>}
+                        {isUpcoming&&<span style={{fontSize:F(10),padding:"2px 7px",borderRadius:5,background:"#eff6ff",color:"#1d4ed8",fontWeight:700}}>Próxima</span>}
+                        {e.url&&<a href={e.url} target="_blank" rel="noreferrer" style={{fontSize:F(11),color:"#1d4ed8",fontWeight:600}}>Ver evento →</a>}
+                        <button onClick={()=>saveCal(calendarEvents.filter(x=>(x.id||x.title+x.start)!==(e.id||e.title+e.start)))} style={{marginLeft:"auto",background:"none",border:"none",color:"#e2e8f0",cursor:"pointer",fontSize:F(14),padding:0}}>✕</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{marginTop:12}}>
+              <div style={{fontSize:F(12),fontWeight:700,color:"#64748b",marginBottom:8}}>+ Agregar reunión manualmente</div>
+              <AddEventForm onAdd={(ev)=>saveCal([...calendarEvents,{...ev,id:uid(),projectId:proj.id}])} projects={projects}/>
+            </div>
+          </div>
+        )}
+
         {tab==="licitacion"&&(
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
             <div style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0"}}>
               <div style={{fontSize:F(11),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>ID Licitación — Mercado Público</div>
-              <div style={{fontSize:F(12),color:"#94a3b8",marginBottom:12}}>Ingresa el código (ej: 1431841-10-B226). El sistema consultará y extraerá fechas y estado automáticamente.</div>
               <div style={{display:"flex",gap:8,marginBottom:8}}>
                 <input value={proj.licitId||""} onChange={e=>saveP(projects.map(p=>p.id===proj.id?{...p,licitId:e.target.value}:p))} placeholder="Ej: 1431841-10-B226" style={{...inp,flex:1,fontFamily:"monospace",fontWeight:700}}/>
                 <button onClick={()=>fetchLicit(proj)} disabled={!proj.licitId||fetchingLicit===proj.id} style={{...btn(!proj.licitId||fetchingLicit===proj.id?"#94a3b8":"#7c3aed"),padding:"10px 16px",opacity:!proj.licitId?0.5:1}}>
@@ -766,11 +1246,11 @@ export default function Page(){
             {proj.licitId&&<LicitCard p={proj}/>}
           </div>
         )}
+
         {tab==="notes"&&(
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
             <div style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0"}}>
               <div style={{fontSize:F(11),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Notas de Gestión</div>
-              <div style={{fontSize:F(12),color:"#94a3b8",marginBottom:12}}>Escribe libremente. La IA generará un resumen ejecutivo estructurado.</div>
               <textarea value={notesDraft} onChange={e=>setNotesDraft(e.target.value)} onBlur={()=>saveP(projects.map(p=>p.id===proj.id?{...p,notes:notesDraft}:p))} rows={8} placeholder="Ej: Reunión con GORE el 10 abril. Pendiente firma resolución..." style={{...inp,resize:"vertical",fontSize:F(13),lineHeight:1.6}}/>
               <button onClick={genSummary} disabled={genSum||!notesDraft.trim()} style={{...btn(genSum||!notesDraft.trim()?"#94a3b8":"#1d4ed8"),width:"100%",marginTop:12,padding:14,opacity:genSum||!notesDraft.trim()?0.6:1}}>
                 {genSum?"✨ Generando…":"✨ Generar Resumen Ejecutivo con IA"}
@@ -779,12 +1259,13 @@ export default function Page(){
             {proj.aiSummary&&<div style={{background:"#eff6ff",borderRadius:10,padding:16,border:"1px solid #bfdbfe"}}><div style={{fontSize:F(11),fontWeight:700,color:"#1d4ed8",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>✨ Último Resumen</div><p style={{fontSize:F(13),color:"#1e3a5f",lineHeight:1.7,margin:0}}>{proj.aiSummary}</p><button onClick={genSummary} disabled={genSum} style={{...btn("#e0f2fe","#0369a1"),marginTop:12,fontSize:F(12),padding:"7px 14px"}}>🔄 Actualizar</button></div>}
           </div>
         )}
+
         {tab==="docs"&&(
           <div>
             <button onClick={()=>fileRef.current?.click()} disabled={extracting} style={{...btn(extracting?"#94a3b8":"#0284c7"),width:"100%",marginBottom:16,padding:14}}>
               {extracting?"⏳ Procesando con IA…":"📎 Subir Documento (PDF / Imagen)"}
             </button>
-            {proj.docs.length===0&&!extracting&&<div style={{background:"white",borderRadius:10,padding:40,textAlign:"center",color:"#94a3b8",border:"2px dashed #e2e8f0"}}><div style={{fontSize:F(36),marginBottom:10}}>📄</div><div style={{fontSize:F(13)}}>Sin documentos. Sube convenios, contratos, bases técnicas…</div></div>}
+            {proj.docs.length===0&&!extracting&&<div style={{background:"white",borderRadius:10,padding:40,textAlign:"center",color:"#94a3b8",border:"2px dashed #e2e8f0"}}><div style={{fontSize:F(36),marginBottom:10}}>📄</div><div style={{fontSize:F(13)}}>Sin documentos.</div></div>}
             {proj.docs.map(d=>{let ex={};try{ex=JSON.parse(d.extracted);}catch{}return(
               <div key={d.id} style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0",marginBottom:12}}>
                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
@@ -793,12 +1274,11 @@ export default function Page(){
                 </div>
                 {d.summary&&<p style={{fontSize:F(13),color:"#334155",lineHeight:1.6,background:"#f8fafc",padding:"10px 12px",borderRadius:6,margin:"0 0 10px"}}>{d.summary}</p>}
                 {ex.dates?.length>0&&<div style={{marginBottom:8}}>{ex.dates.map((dt,i)=><div key={i} style={{fontSize:F(12),color:"#334155",padding:"2px 0"}}>📅 {typeof dt==="object"?`${dt.date} — ${dt.description}`:dt}</div>)}</div>}
-                {ex.obligations?.length>0&&<div style={{marginBottom:8}}>{ex.obligations.map((o,i)=><div key={i} style={{fontSize:F(12),color:"#334155",padding:"2px 0"}}>▸ {o}</div>)}</div>}
-                {ex.tasks?.length>0&&<div>{ex.tasks.map((t,i)=><div key={i} style={{fontSize:F(12),color:"#334155",padding:"2px 0"}}>✔ {t}</div>)}</div>}
               </div>
             );})}
           </div>
         )}
+
         {tab==="tasks"&&(
           <div>
             <div style={{display:"flex",gap:8,marginBottom:16}}>
@@ -820,6 +1300,7 @@ export default function Page(){
             );})}
           </div>
         )}
+
         {tab==="emails"&&(
           <div>
             <button onClick={()=>setAddingEmail(true)} style={{...btn("#1d4ed8"),width:"100%",marginBottom:16,padding:14}}>+ Registrar Correo</button>
@@ -850,7 +1331,7 @@ export default function Page(){
     </div>
   );
 
-  // ── CHAT ───────────────────────────────────────────────
+  // ── CHAT ──────────────────────────────────────────
   const chatPanel=(
     <div style={{display:"flex",flexDirection:"column",height:mob?"calc(100vh - 58px - 58px)":"100%",background:"white"}}>
       <div style={{padding:"10px 14px",background:"#f8fafc",borderBottom:"1px solid #e2e8f0",flexShrink:0}}>
@@ -875,7 +1356,7 @@ export default function Page(){
     </div>
   );
 
-  // ── MODAL ──────────────────────────────────────────────
+  // ── MODAL ─────────────────────────────────────────
   const modal=showForm&&(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:mob?"flex-end":"center",justifyContent:"center",zIndex:300}}>
       <div style={{background:"white",borderRadius:mob?"16px 16px 0 0":"12px",padding:22,width:mob?"100%":"520px",maxHeight:"92vh",...scroll,boxSizing:"border-box"}}>
@@ -909,27 +1390,71 @@ export default function Page(){
     </div>
   );
 
-  // ── MOBILE NAV ─────────────────────────────────────────
+  // ── MOBILE NAV ────────────────────────────────────
   const mobileNav=mob&&(
     <div style={{position:"fixed",bottom:0,left:0,right:0,background:"white",borderTop:"1px solid #e2e8f0",display:"flex",zIndex:100,paddingBottom:"env(safe-area-inset-bottom)"}}>
-      {[["dash","📊","Dashboard"],["projects","📁","Proyectos"],["chat","🤖","Asistente"]].map(([v,icon,label])=>(
-        <button key={v} onClick={()=>setView(v)} style={{flex:1,padding:"12px 4px 8px",background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+      {[["dash","📊","Dashboard"],["projects","📁","Proyectos"],["calendar","📅","Agenda"],["chat","🤖","Asistente"]].map(([v,icon,label])=>(
+        <button key={v} onClick={()=>{if(v==="calendar"){setView("dash");setMainTab("calendar");}else{setView(v);setMainTab("dash");}}} style={{flex:1,padding:"12px 4px 8px",background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
           <span style={{fontSize:F(20)}}>{icon}</span>
-          <span style={{fontSize:F(11),fontWeight:view===v?700:400,color:view===v?"#1d4ed8":"#94a3b8"}}>{label}</span>
-          {view===v&&<div style={{width:22,height:2,background:"#1d4ed8",borderRadius:2}}/>}
+          <span style={{fontSize:F(11),fontWeight:(view===v||(v==="calendar"&&mainTab==="calendar"))?700:400,color:(view===v||(v==="calendar"&&mainTab==="calendar"))?"#1d4ed8":"#94a3b8"}}>{label}</span>
+          {(view===v||(v==="calendar"&&mainTab==="calendar"))&&<div style={{width:22,height:2,background:"#1d4ed8",borderRadius:2}}/>}
         </button>
       ))}
     </div>
   );
 
-  // ── RENDER ─────────────────────────────────────────────
+  // ── SIDEBAR DESKTOP ───────────────────────────────
+  const sidebar = !mob && (
+    <div style={{width:270,background:"#0f172a",...scroll,flexShrink:0,display:"flex",flexDirection:"column"}}>
+      <div style={{padding:"10px 8px"}}>
+        <button onClick={()=>{setSel(null);setView("dash");setMainTab("dash");}} style={{width:"100%",padding:"11px 14px",borderRadius:7,background:(view==="dash"&&mainTab==="dash")?"#1e3a5f":"transparent",color:(view==="dash"&&mainTab==="dash")?"#93c5fd":"#64748b",border:"none",cursor:"pointer",textAlign:"left",fontSize:F(13),fontWeight:600,display:"flex",alignItems:"center",gap:8}}>📊 Dashboard General</button>
+        {/* Nueva entrada: Respondidas */}
+        <button onClick={()=>{setSel(null);setView("dash");setMainTab("answered");}} style={{width:"100%",padding:"11px 14px",borderRadius:7,background:mainTab==="answered"?"#1e3a5f":"transparent",color:mainTab==="answered"?"#93c5fd":"#64748b",border:"none",cursor:"pointer",textAlign:"left",fontSize:F(13),fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+          <span>✅ Solicitudes Respondidas</span>
+          {answeredRequests.length>0&&<span style={{fontSize:F(10),background:"#22c55e33",color:"#22c55e",padding:"1px 7px",borderRadius:10,fontWeight:700}}>{answeredRequests.length}</span>}
+        </button>
+        {/* Nueva entrada: Calendario */}
+        <button onClick={()=>{setSel(null);setView("dash");setMainTab("calendar");}} style={{width:"100%",padding:"11px 14px",borderRadius:7,background:mainTab==="calendar"?"#1e3a5f":"transparent",color:mainTab==="calendar"?"#93c5fd":"#64748b",border:"none",cursor:"pointer",textAlign:"left",fontSize:F(13),fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+          <span>📅 Calendario</span>
+          {calendarEvents.filter(e=>e.start>=new Date().toISOString().slice(0,10)).length>0&&<span style={{fontSize:F(10),background:"#3b82f633",color:"#93c5fd",padding:"1px 7px",borderRadius:10,fontWeight:700}}>{calendarEvents.filter(e=>e.start>=new Date().toISOString().slice(0,10)).length}</span>}
+        </button>
+      </div>
+      {pendingGf.length>0&&(
+        <div style={{margin:"0 10px 6px",padding:"10px 12px",background:"#7f1d1d22",borderRadius:7,border:"1px solid #ef444433"}}>
+          <div style={{fontSize:F(10),color:"#fca5a5",fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>📬 Seguimientos</div>
+          {criticalGf.length>0&&<div style={{fontSize:F(12),color:"#ef4444",fontWeight:700}}>🔴 {criticalGf.length} crítico(s)</div>}
+          <div style={{fontSize:F(11),color:"#94a3b8"}}>{pendingGf.length} pendiente(s)</div>
+        </div>
+      )}
+      <div style={{padding:"0 8px",flex:1}}>
+        <div style={{fontSize:F(10),color:"#334155",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",padding:"10px 12px 6px"}}>Proyectos</div>
+        {projects.map(p=>{
+          const projEvs=eventsForProject(p.id).filter(e=>e.start>=new Date().toISOString().slice(0,10));
+          return(
+          <button key={p.id} onClick={()=>{setSel(p.id);setTab("overview");setView("project");setMainTab("dash");}} style={{width:"100%",padding:"11px 14px",borderRadius:7,background:sel===p.id?"#1e3a5f":"transparent",border:sel===p.id?"1px solid #1d4ed8":"1px solid transparent",cursor:"pointer",textAlign:"left",marginBottom:3}}>
+            <div style={{fontSize:F(12),fontWeight:sel===p.id?700:500,color:sel===p.id?"#e2e8f0":"#94a3b8",lineHeight:1.3,marginBottom:5}}>{p.name}</div>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+              <span style={{fontSize:F(10),padding:"2px 7px",borderRadius:8,background:SC[p.status]+"25",color:SC[p.status],fontWeight:700}}>{p.status}</span>
+              <span style={{fontSize:F(10),padding:"2px 6px",borderRadius:8,background:"#1e293b",color:"#64748b"}}>{p.financier}</span>
+              {projEvs.length>0&&<span style={{fontSize:F(10),padding:"2px 6px",borderRadius:8,background:"#172554",color:"#93c5fd"}}>📅 {projEvs.length}</span>}
+            </div>
+          </button>
+        );})}
+      </div>
+      <div style={{padding:"10px 8px"}}><button onClick={()=>{setForm(EF);setEditId(null);setShowForm(true);}} style={{...btn("#1d4ed8"),width:"100%",fontSize:F(12)}}>+ Nuevo Proyecto</button></div>
+    </div>
+  );
+
+  // ── RENDER PRINCIPAL ──────────────────────────────
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100vh",background:"#f1f5f9",overflow:"hidden"}}>
       {header}
       <div style={{flex:1,overflow:"hidden",display:"flex"}}>
         {mob?(
           <div style={{flex:1,...scroll}}>
-            {view==="dash"&&dashContent}
+            {view==="dash"&&mainTab==="dash"&&dashContent}
+            {view==="dash"&&mainTab==="answered"&&<AnsweredPanel/>}
+            {view==="dash"&&mainTab==="calendar"&&<CalendarPanel/>}
             {view==="projects"&&(
               <div style={{padding:"16px 16px 90px"}}>
                 {projects.map(p=>(
@@ -952,33 +1477,12 @@ export default function Page(){
           </div>
         ):(
           <>
-            <div style={{width:270,background:"#0f172a",...scroll,flexShrink:0,display:"flex",flexDirection:"column"}}>
-              <div style={{padding:"10px 8px"}}>
-                <button onClick={()=>{setSel(null);setView("dash");}} style={{width:"100%",padding:"11px 14px",borderRadius:7,background:view==="dash"?"#1e3a5f":"transparent",color:view==="dash"?"#93c5fd":"#64748b",border:"none",cursor:"pointer",textAlign:"left",fontSize:F(13),fontWeight:600,display:"flex",alignItems:"center",gap:8}}>📊 Dashboard General</button>
-              </div>
-              {pendingGf.length>0&&(
-                <div style={{margin:"0 10px 6px",padding:"10px 12px",background:"#7f1d1d22",borderRadius:7,border:"1px solid #ef444433"}}>
-                  <div style={{fontSize:F(10),color:"#fca5a5",fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>📬 Seguimientos</div>
-                  {criticalGf.length>0&&<div style={{fontSize:F(12),color:"#ef4444",fontWeight:700}}>🔴 {criticalGf.length} crítico(s)</div>}
-                  <div style={{fontSize:F(11),color:"#94a3b8"}}>{pendingGf.length} pendiente(s)</div>
-                </div>
-              )}
-              <div style={{padding:"0 8px",flex:1}}>
-                <div style={{fontSize:F(10),color:"#334155",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",padding:"10px 12px 6px"}}>Proyectos</div>
-                {projects.map(p=>(
-                  <button key={p.id} onClick={()=>{setSel(p.id);setTab("overview");setView("project");}} style={{width:"100%",padding:"11px 14px",borderRadius:7,background:sel===p.id?"#1e3a5f":"transparent",border:sel===p.id?"1px solid #1d4ed8":"1px solid transparent",cursor:"pointer",textAlign:"left",marginBottom:3}}>
-                    <div style={{fontSize:F(12),fontWeight:sel===p.id?700:500,color:sel===p.id?"#e2e8f0":"#94a3b8",lineHeight:1.3,marginBottom:5}}>{p.name}</div>
-                    <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-                      <span style={{fontSize:F(10),padding:"2px 7px",borderRadius:8,background:SC[p.status]+"25",color:SC[p.status],fontWeight:700}}>{p.status}</span>
-                      <span style={{fontSize:F(10),padding:"2px 6px",borderRadius:8,background:"#1e293b",color:"#64748b"}}>{p.financier}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-              <div style={{padding:"10px 8px"}}><button onClick={()=>{setForm(EF);setEditId(null);setShowForm(true);}} style={{...btn("#1d4ed8"),width:"100%",fontSize:F(12)}}>+ Nuevo Proyecto</button></div>
-            </div>
+            {sidebar}
             <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-              {(view==="dash"||(!proj&&view!=="chat"))&&<div style={{flex:1,...scroll}}>{dashContent}</div>}
+              {/* Render según mainTab */}
+              {view!=="project"&&view!=="chat"&&mainTab==="dash"&&<div style={{flex:1,...scroll}}>{dashContent}</div>}
+              {view!=="project"&&view!=="chat"&&mainTab==="answered"&&<div style={{flex:1,...scroll}}><AnsweredPanel/></div>}
+              {view!=="project"&&view!=="chat"&&mainTab==="calendar"&&<div style={{flex:1,...scroll}}><CalendarPanel/></div>}
               {view==="project"&&proj&&projDetail}
             </div>
             {view==="chat"&&(
