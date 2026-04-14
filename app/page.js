@@ -140,9 +140,9 @@ export default function Page(){
   const pendingFollows=gmailFollows.filter(f=>f.status==="pendiente");
   const criticalFollows=pendingFollows.filter(f=>f.urgency==="crítica");
 
-  const inp={padding:"12px 14px",borderRadius:8,border:"1px solid #d1d5db",fontSize:15,width:"100%",boxSizing:"border-box",outline:"none",background:"white"};
-  const btn=(bg,c="#fff",e={})=>({padding:"12px 18px",borderRadius:8,background:bg,color:c,border:"none",cursor:"pointer",fontSize:14,fontWeight:600,...e});
-  const lbl={fontSize:13,fontWeight:600,color:"#374151",display:"block",marginBottom:4};
+  const inp={padding:"13px 15px",borderRadius:8,border:"1px solid #d1d5db",fontSize:16,width:"100%",boxSizing:"border-box",outline:"none",background:"white"};
+  const btn=(bg,c="#fff",e={})=>({padding:"13px 20px",borderRadius:8,background:bg,color:c,border:"none",cursor:"pointer",fontSize:15,fontWeight:600,...e});
+  const lbl={fontSize:14,fontWeight:600,color:"#374151",display:"block",marginBottom:4};
 
   const LicitCard=({p})=>{
     const ld=p.licitData;const isFetching=fetchingLicit===p.id;
@@ -515,7 +515,7 @@ export default function Page(){
   );
 
   return(
-    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:"#f1f5f9",overflow:"hidden",fontSize:"16px"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:"#f1f5f9",overflow:"hidden",fontSize:"18px"}}>
       {header}
       <div style={{flex:1,overflow:"hidden",display:"flex"}}>
         {mob?(
