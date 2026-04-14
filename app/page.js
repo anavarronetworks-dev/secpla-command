@@ -13,13 +13,13 @@ const UC = {"crítica":"#ef4444","alta":"#f97316","media":"#f59e0b"};
 const UL = {"crítica":"🔴","alta":"🟠","media":"🟡"};
 
 const GMAIL_FOLLOWS_INIT = [
-  {id:"gf1",projectId:"p2",urgency:"alta",subject:"Factibilidad uso Torre Telecom — Central Monitoreo",to:"Francisco Moscoso (fmoscoso@recoleta.cl)",context:"Solicitud de pronunciamiento y autorización para usar Torre Telecom del edificio consistorial como repetidor 5GHz para enlace Cerro Blanco → Central de Monitoreo. Solo llegaron acuses de lectura. Francisco Moscoso no ha respondido.",sentDate:"2026-04-01",daysPending:12,status:"pendiente",threadUrl:"https://mail.google.com/mail/u/0/#all/19d4aa05342a51ac"},
-  {id:"gf2",projectId:"p2",urgency:"alta",subject:"Modificación Plazo SNSM23-STP-0039 — Ficha subsanada enviada a SPD",to:"Osvaldo Muñoz Vallejos — SPD (omunoz@minsegpublica.gob.cl)",context:"Ficha modificación con observaciones subsanadas enviada el 7 abril. SPD no ha confirmado aprobación ni cierre del SIGE 22004928.",sentDate:"2026-04-07",daysPending:6,status:"pendiente",threadUrl:"https://mail.google.com/mail/u/0/#all/19d1ab5d03fb53ce"},
-  {id:"gf3",projectId:"p2",urgency:"alta",subject:"Cotización SNSM2025 — Scharfstein (3er seguimiento)",to:"Sebastian Merino / Cristobal Cruz (smerino@scharfstein.cl)",context:"Cotización solicitada el 11 marzo. 3er seguimiento enviado el 10 abril. Sin cotización aún. Respondieron el 1 abril que están evaluando precios por situación geopolítica.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/mail/u/0/#all/19cddd6313f40188"},
-  {id:"gf4",projectId:"p2",urgency:"crítica",subject:"2do Llamado Trato Directo Sala Monitoreo — 2 correos fallidos",to:"Securitas.cl / Prosegur (emails rebotaron)",context:"Plazo límite 16 abril. 2 correos fallaron: comercial@securitas.cl (dominio no existe) y ventas.empresas@prosegur.com (usuario desconocido). Buscar correos correctos urgente.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/mail/u/0/#all/19d73316aebeb956"},
-  {id:"gf5",projectId:"p2",urgency:"media",subject:"Cotización SNSM2025 — Grupo VSM",to:"comunicaciones@grupovsm.cl / contacto@grupovsm.cl",context:"Cotización enviada el 10 abril. Sin respuesta aún.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/mail/u/0/#search/in:sent subject:SNSM2025"},
-  {id:"gf6",projectId:"p2",urgency:"media",subject:"Cotización SNSM2025 — RockTech",to:"fabiana.rifo@rocktechla.com / sergio@rocktechla.com",context:"Cotización enviada el 10 abril. Sin respuesta aún.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/mail/u/0/#search/in:sent subject:SNSM2025"},
-  {id:"gf7",projectId:"p2",urgency:"alta",subject:"Supervisión Convenio IYT25-SET-0011 — Registrar acuerdos",to:"Daniel Galarce León — SPD (dgalarce@minsegpublica.gob.cl)",context:"Reunión de primera supervisión fue el 14 abril 16:00. Pendiente registrar acuerdos y compromisos.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/mail/u/0/#all/19d77c3547e2747f"}
+  {id:"gf1",projectId:"p2",urgency:"alta",subject:"Factibilidad uso Torre Telecom — Central Monitoreo",to:"Francisco Moscoso (fmoscoso@recoleta.cl)",context:"Solicitud de pronunciamiento y autorización para usar Torre Telecom del edificio consistorial como repetidor 5GHz para enlace Cerro Blanco → Central de Monitoreo. Solo llegaron acuses de lectura. Francisco Moscoso no ha respondido.",sentDate:"2026-04-01",daysPending:12,status:"pendiente",threadUrl:"https://mail.google.com/mail/u/0/#search/subject:(Factibilidad+uso+Torre+Telecom)"},
+  {id:"gf2",projectId:"p2",urgency:"alta",subject:"Modificación Plazo SNSM23-STP-0039 — Ficha subsanada enviada a SPD",to:"Osvaldo Muñoz Vallejos — SPD (omunoz@minsegpublica.gob.cl)",context:"Ficha modificación con observaciones subsanadas enviada el 7 abril. SPD no ha confirmado aprobación ni cierre del SIGE 22004928.",sentDate:"2026-04-07",daysPending:6,status:"pendiente",threadUrl:"https://mail.google.com/mail/u/0/#search/subject:(Modificaci%C3%B3n+Plazo+SNSM23-STP-0039)"},
+  {id:"gf3",projectId:"p2",urgency:"alta",subject:"Cotización SNSM2025 — Scharfstein (3er seguimiento)",to:"Sebastian Merino / Cristobal Cruz (smerino@scharfstein.cl)",context:"Cotización solicitada el 11 marzo. 3er seguimiento enviado el 10 abril. Sin cotización aún. Respondieron el 1 abril que están evaluando precios por situación geopolítica.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/mail/u/0/#search/from:scharfstein.cl+subject:(SNSM2025)"},
+  {id:"gf4",projectId:"p2",urgency:"crítica",subject:"2do Llamado Trato Directo Sala Monitoreo — 2 correos fallidos",to:"Securitas.cl / Prosegur (emails rebotaron)",context:"Plazo límite 16 abril. 2 correos fallaron: comercial@securitas.cl (dominio no existe) y ventas.empresas@prosegur.com (usuario desconocido). Buscar correos correctos urgente.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/mail/u/0/#search/subject:(2do+Llamado+Solicitud+Cotizaci%C3%B3n+Trato+Directo)"},
+  {id:"gf5",projectId:"p2",urgency:"media",subject:"Cotización SNSM2025 — Grupo VSM",to:"comunicaciones@grupovsm.cl / contacto@grupovsm.cl",context:"Cotización enviada el 10 abril. Sin respuesta aún.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/mail/u/0/#search/to:grupovsm.cl+subject:(SNSM2025)"},
+  {id:"gf6",projectId:"p2",urgency:"media",subject:"Cotización SNSM2025 — RockTech",to:"fabiana.rifo@rocktechla.com / sergio@rocktechla.com",context:"Cotización enviada el 10 abril. Sin respuesta aún.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/mail/u/0/#search/to:rocktechla.com+subject:(SNSM2025)"},
+  {id:"gf7",projectId:"p2",urgency:"alta",subject:"Supervisión Convenio IYT25-SET-0011 — Registrar acuerdos",to:"Daniel Galarce León — SPD (dgalarce@minsegpublica.gob.cl)",context:"Reunión de primera supervisión fue el 14 abril 16:00. Pendiente registrar acuerdos y compromisos.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/mail/u/0/#search/subject:(IYT25-SET-0011)+"}
 ];
 
 const INIT_PROJECTS = [
@@ -140,9 +140,9 @@ export default function Page(){
   const pendingFollows=gmailFollows.filter(f=>f.status==="pendiente");
   const criticalFollows=pendingFollows.filter(f=>f.urgency==="crítica");
 
-  const inp={padding:"13px 15px",borderRadius:8,border:"1px solid #d1d5db",fontSize:16,width:"100%",boxSizing:"border-box",outline:"none",background:"white"};
-  const btn=(bg,c="#fff",e={})=>({padding:"13px 20px",borderRadius:8,background:bg,color:c,border:"none",cursor:"pointer",fontSize:15,fontWeight:600,...e});
-  const lbl={fontSize:14,fontWeight:600,color:"#374151",display:"block",marginBottom:4};
+  const inp={padding:"14px 16px",borderRadius:8,border:"1px solid #d1d5db",fontSize:17,width:"100%",boxSizing:"border-box",outline:"none",background:"white"};
+  const btn=(bg,c="#fff",e={})=>({padding:"14px 22px",borderRadius:8,background:bg,color:c,border:"none",cursor:"pointer",fontSize:16,fontWeight:600,...e});
+  const lbl={fontSize:15,fontWeight:600,color:"#374151",display:"block",marginBottom:5};
 
   const LicitCard=({p})=>{
     const ld=p.licitData;const isFetching=fetchingLicit===p.id;
@@ -515,7 +515,7 @@ export default function Page(){
   );
 
   return(
-    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:"#f1f5f9",overflow:"hidden",fontSize:"18px"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:"#f1f5f9",overflow:"hidden",fontSize:"20px"}}>
       {header}
       <div style={{flex:1,overflow:"hidden",display:"flex"}}>
         {mob?(
