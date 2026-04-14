@@ -66,4 +66,4 @@ export async function POST(req) {
     console.error(err);
     return Response.json({ text: "Error en el servidor." }, { status: 500 });
   }
-}
+} 
