@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 
 // ── ESCALA GLOBAL DE FUENTE ─────────────────────────────
-const F = (n) => `${Math.round(n * 1.85)}px`;
+const F = (n) => `${Math.round(n * 1.5)}px`;
 // ── helpers ────────────────────────────────────────────
 const fCLP = n => !n ? "—" : `$${Math.round(n).toLocaleString("es-CL")}`;
 const fDate = d => d ? new Date(d+"T12:00:00").toLocaleDateString("es-CL",{day:"2-digit",month:"short",year:"numeric"}) : "—";
@@ -15,21 +15,141 @@ const MPC = {"Publicada":"#059669","En proceso":"#3b82f6","Cerrada":"#f59e0b","A
 const UC = {"crítica":"#ef4444","alta":"#f97316","media":"#f59e0b"};
 const UL = {"crítica":"🔴","alta":"🟠","media":"🟡"};
 
+// ── SOLICITUDES DE JEFATURA ────────────────────────────
+const BOSS_INIT = [
+  // ── María Paz ──
+  {id:"b1",from:"María Paz Juica",email:"mjuica@recoleta.cl",projectId:"p5",urgency:"crítica",
+   task:"Preparar presentación diagnóstico de las 3 salas de cámaras (pros y contras) para reunión Alcaldía el miércoles 15 abril 13:00 hrs.",
+   requestDate:"2026-04-10",status:"pendiente",
+   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d790219c18994c"},
+  {id:"b2",from:"María Paz Juica",email:"mjuica@recoleta.cl",projectId:"p2",urgency:"alta",
+   task:"Revisar y subsanar observaciones del proyecto código SNSM25-STP-0113. Plazo máximo: 15 días desde el 9 abril.",
+   requestDate:"2026-04-09",status:"pendiente",
+   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d743c80d701dbc"},
+  {id:"b3",from:"María Paz Juica",email:"mjuica@recoleta.cl",projectId:"p2",urgency:"alta",
+   task:"Confirmar recepción de Certificados BNUP del proyecto SNSM2025. Solo se tienen Certificados de Número. Los BNUP aún no han llegado según tu respuesta del 13 abr.",
+   requestDate:"2026-04-13",status:"pendiente",
+   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d871327ac64df4"},
+  {id:"b4",from:"María Paz Juica",email:"mjuica@recoleta.cl",projectId:"p5",urgency:"media",
+   task:"Gestionar Decreto que modifica Comisión Evaluadora para poder procesar el Informe de licitación desierta Sala Monitoreo.",
+   requestDate:"2026-04-10",status:"pendiente",
+   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d3f351893aaf74"},
+  {id:"b5",from:"María Paz Juica",email:"mjuica@recoleta.cl",projectId:"p1",urgency:"media",
+   task:"Enviar antecedentes corregidos 6ta Comisaría con SECPLA como ITS del proyecto según indicación de Administración.",
+   requestDate:"2026-04-06",status:"completado",completedNote:"Entregado el 8 abril con proyecto completo.",
+   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d1c4a8a983aa5c"},
+  {id:"b6",from:"María Paz Juica",email:"mjuica@recoleta.cl",projectId:"p3",urgency:"media",
+   task:"Dejar documentos licitación CCTV Centros Culturales en carpeta 01_Licitacion y completar planilla LICITACIONES_Seguimiento.",
+   requestDate:"2026-03-25",status:"completado",completedNote:"Subidos el mismo día 25 marzo.",
+   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d2665ac1e575ac"},
+  // ── Grace Arcos ──
+  {id:"b7",from:"Grace Arcos",email:"garcos@recoleta.cl",projectId:"p5",urgency:"alta",
+   task:"Reunión Opciones Sala de Televigilancia — miércoles 15 abril 13:00 hrs. Llevar diagnóstico de las 3 opciones según solicitud de María Paz.",
+   requestDate:"2026-04-08",status:"pendiente",
+   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d6dc78c627480e"},
+  {id:"b8",from:"Grace Arcos",email:"garcos@recoleta.cl",projectId:"p1",urgency:"alta",
+   task:"Seguimiento empalme eléctrico 6ta Comisaría — reunión miércoles 15 abril. Grace confirmó asistencia. DOM gestiona con ENEL con documentación del Alcalde.",
+   requestDate:"2026-04-13",status:"pendiente",
+   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d892c228474fcc"},
+];
+
+// ── DÍAS CORRIDOS SIEVAP ───────────────────────────────
+const SIEVAP_START    = new Date("2026-04-09T00:00:00");
+const SIEVAP_DEADLINE = new Date("2026-04-24T23:59:59"); // 15 días corridos desde 9 abril
+const SIEVAP_TOTAL    = 15; // días CORRIDOS según notificación SIEVAP
+
+function daysBetween(from, to){
+  return Math.round((to - from) / (1000 * 60 * 60 * 24));
+}
+
+// ── RELOJ CONTROL ─────────────────────────────────────
+const JORNADA_MIN = 9 * 60;
+const isFri = d => new Date(d+"T12:00:00").getDay()===5;
+const jornada = d => isFri(d) ? 480 : 540;
+const ALL_CLOCK = [
+  // ENERO
+  {date:"2026-01-15",entrada:"07:53",salida:"17:03"},
+  {date:"2026-01-19",entrada:"08:01",salida:"12:54"},
+  {date:"2026-01-20",entrada:"07:49",salida:"17:05"},
+  {date:"2026-01-21",entrada:"07:49",salida:"16:56"},
+  {date:"2026-01-22",entrada:"08:07",salida:"17:17"},
+  {date:"2026-01-23",entrada:"07:51",salida:"16:11"},
+  {date:"2026-01-26",entrada:"07:48",salida:"17:28"},
+  {date:"2026-01-27",entrada:"07:56",salida:"17:04"},
+  {date:"2026-01-28",entrada:"07:56",salida:"17:00"},
+  {date:"2026-01-29",entrada:"07:39",salida:"16:53"},
+  {date:"2026-01-30",entrada:"07:43",salida:"15:46"},
+  // FEBRERO
+  {date:"2026-02-04",entrada:"07:48",salida:"17:00"},
+  {date:"2026-02-05",entrada:"07:42",salida:"16:44"},
+  {date:"2026-02-06",entrada:"08:05",salida:"16:13"},
+  {date:"2026-02-09",entrada:"08:15",salida:"17:21"},
+  {date:"2026-02-10",entrada:"08:37",salida:"17:40"},
+  {date:"2026-02-11",entrada:"07:44",salida:"16:56"},
+  {date:"2026-02-12",entrada:"07:44",salida:"16:56"},
+  {date:"2026-02-13",entrada:"08:15",salida:null},
+  {date:"2026-02-16",entrada:"07:40",salida:"17:05"},
+  {date:"2026-02-17",entrada:"07:42",salida:"16:52"},
+  {date:"2026-02-18",entrada:"07:57",salida:"17:04"},
+  {date:"2026-02-19",entrada:"07:26",salida:"16:34"},
+  {date:"2026-02-20",entrada:"07:50",salida:"15:59"},
+  {date:"2026-02-23",entrada:"07:45",salida:"16:50"},
+  {date:"2026-02-24",entrada:"07:49",salida:"16:53"},
+  {date:"2026-02-26",entrada:"07:41",salida:"16:54"},
+  {date:"2026-02-27",entrada:"07:54",salida:"16:08"},
+  // MARZO
+  {date:"2026-03-09",entrada:"08:24",salida:"17:40"},
+  {date:"2026-03-10",entrada:"08:36",salida:"17:40"},
+  {date:"2026-03-11",entrada:"08:14",salida:"17:27"},
+  {date:"2026-03-12",entrada:"08:34",salida:"17:44"},
+  {date:"2026-03-13",entrada:"08:32",salida:"16:46"},
+  {date:"2026-03-16",entrada:"08:26",salida:"17:29"},
+  {date:"2026-03-17",entrada:"08:21",salida:"17:33"},
+  {date:"2026-03-18",entrada:"08:18",salida:"17:28"},
+  {date:"2026-03-19",entrada:"08:21",salida:"17:25"},
+  {date:"2026-03-20",entrada:"08:16",salida:"16:12"},
+  {date:"2026-03-23",entrada:"08:39",salida:"17:48"},
+  {date:"2026-03-24",entrada:"08:19",salida:"17:24"},
+  {date:"2026-03-25",entrada:"08:27",salida:"17:40"},
+  {date:"2026-03-30",entrada:"08:33",salida:"17:36"},
+  {date:"2026-03-31",entrada:"08:28",salida:"17:33"},
+  // ABRIL
+  {date:"2026-04-01",entrada:"08:31",salida:"17:36"},
+  {date:"2026-04-02",entrada:"08:34",salida:"17:32"},
+  {date:"2026-04-07",entrada:"08:42",salida:"18:26"},
+  {date:"2026-04-08",entrada:"08:26",salida:"17:28"},
+  {date:"2026-04-09",entrada:"08:40",salida:"17:41"},
+  {date:"2026-04-10",entrada:"08:21",salida:"16:34"},
+  {date:"2026-04-13",entrada:"08:26",salida:"17:37"},
+  {date:"2026-04-14",entrada:"08:30",salida:null},
+];
+const toMin=t=>{if(!t)return null;const[h,m]=t.split(":").map(Number);return h*60+m;};
+const fMin=m=>{const a=Math.abs(m);const h=Math.floor(a/60);const mn=a%60;return h>0?`${h}h ${mn}m`:`${mn}m`;};
+const MONTHS_ES=["","Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const GF_INIT = [
-  {id:"gf1",projectId:"p2",urgency:"alta",subject:"Factibilidad uso Torre Telecom — Central Monitoreo",to:"Francisco Moscoso (fmoscoso@recoleta.cl)",context:"Solicitud de pronunciamiento y autorización para usar Torre Telecom del edificio consistorial como repetidor 5GHz para enlace Cerro Blanco → Central de Monitoreo. Solo llegaron acuses de lectura. Francisco Moscoso no ha respondido.",sentDate:"2026-04-01",daysPending:12,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d4aa05342a51ac"},
-  {id:"gf2",projectId:"p2",urgency:"alta",subject:"Modificación Plazo SNSM23-STP-0039 — Ficha subsanada enviada a SPD",to:"Osvaldo Muñoz Vallejos — SPD (omunoz@minsegpublica.gob.cl)",context:"Ficha modificación con observaciones subsanadas enviada el 7 abril. SPD no ha confirmado aprobación ni cierre del SIGE 22004928.",sentDate:"2026-04-07",daysPending:6,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d1ab5d03fb53ce"},
-  {id:"gf3",projectId:"p2",urgency:"alta",subject:"Cotización SNSM2025 — Scharfstein (3er seguimiento)",to:"Sebastian Merino / Cristobal Cruz (smerino@scharfstein.cl)",context:"Cotización solicitada el 11 marzo. 3er seguimiento enviado el 10 abril. Sin cotización aún. Respondieron el 1 abril que están evaluando precios por situación geopolítica.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19cddd6313f40188"},
-  {id:"gf4",projectId:"p2",urgency:"crítica",subject:"2do Llamado Trato Directo Sala Monitoreo — 2 correos fallidos",to:"Securitas.cl / Prosegur (emails rebotaron)",context:"Plazo límite 16 abril. 2 correos fallaron: comercial@securitas.cl (dominio no existe) y ventas.empresas@prosegur.com (usuario desconocido). Buscar correos correctos urgente.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d73316aebeb956"},
-  {id:"gf5",projectId:"p2",urgency:"media",subject:"Cotización SNSM2025 — Grupo VSM",to:"comunicaciones@grupovsm.cl / contacto@grupovsm.cl",context:"Cotización enviada el 10 abril. Sin respuesta aún.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#sent/19d7903232724e7a"},
-  {id:"gf6",projectId:"p2",urgency:"media",subject:"Cotización SNSM2025 — RockTech",to:"fabiana.rifo@rocktechla.com / sergio@rocktechla.com",context:"Cotización enviada el 10 abril. Sin respuesta aún.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#sent/19d790b9da51a58a"},
-  {id:"gf7",projectId:"p2",urgency:"alta",subject:"Supervisión Convenio IYT25-SET-0011 — Registrar acuerdos",to:"Daniel Galarce León — SPD (dgalarce@minsegpublica.gob.cl)",context:"Reunión de primera supervisión fue el 14 abril 16:00. Pendiente registrar acuerdos y compromisos.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d77c3547e2747f"}
+  {id:"gf4",projectId:"p5",urgency:"crítica",subject:"2do Llamado Trato Directo — Sala Monitoreo Consistorial (2 emails fallidos)",to:"Securitas / Prosegur",context:"Plazo límite 16 abril. 2 correos rebotaron: comercial@securitas.cl (dominio no existe) y ventas.empresas@prosegur.com (usuario desconocido). Hay que encontrar emails correctos de ambas empresas HOY.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d73316aebeb956"},
+  {id:"gf8",projectId:"p5",urgency:"alta",subject:"Factibilidad uso Torre Telecom — Sala Monitoreo Consistorial",to:"Francisco Moscoso (fmoscoso@recoleta.cl)",context:"Solicitud de pronunciamiento y autorización para usar Torre Telecom del edificio consistorial como repetidor 5GHz. Solo llegaron acuses de lectura de Elizabeth Nuñez y Hernan Aravena. Francisco Moscoso no ha respondido en 12 días.",sentDate:"2026-04-01",daysPending:12,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d4aa05342a51ac"},
+  // ── PROYECTO 2: SNSM2025 Integración Cámaras ────────
+  {id:"gf2",projectId:"p2",urgency:"alta",subject:"Modificación Plazo SNSM23-STP-0039 — Ficha subsanada enviada a SPD",to:"Osvaldo Muñoz Vallejos — SPD (omunoz@minsegpublica.gob.cl)",context:"Ficha modificación con observaciones subsanadas enviada el 7 abril (Oficios 1258, 2321 y 2500 incorporados). SPD no ha confirmado aprobación ni cierre del SIGE 22004928.",sentDate:"2026-04-07",daysPending:6,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d1ab5d03fb53ce"},
+  {id:"gf3",projectId:"p2",urgency:"alta",subject:"Cotización SNSM2025 — Scharfstein (3er seguimiento sin respuesta)",to:"Sebastian Merino / Cristobal Cruz (smerino@scharfstein.cl)",context:"Cotización solicitada el 11 marzo. Evaluando precios por situación geopolítica según respuesta del 1 abril. 3er seguimiento enviado el 10 abril. Aún sin cotización formal.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19cddd6313f40188"},
+  {id:"gf5",projectId:"p2",urgency:"alta",subject:"Terreno Cotización SNSM2025 — Visita Bionic Vision el 16 abril",to:"Letxy Valero / Rocío Ponce — Bionic Vision (lvalero@bionicvision.cl)",context:"Bionic Vision confirmó visita técnica el jueves 16 abril para recorrer los 7 puntos CCTV. Punto de reunión: entrada edificio consistorial 12:00. Pendiente coordinar logística y confirmar accesos.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19cddcf7f6811369"},
+  {id:"gf9",projectId:"p2",urgency:"media",subject:"Cotización SNSM2025 — Grupo VSM (sin respuesta)",to:"comunicaciones@grupovsm.cl / contacto@grupovsm.cl",context:"Cotización enviada el 10 abril. Sin respuesta aún.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#sent/19d7903232724e7a"},
+  {id:"gf10",projectId:"p2",urgency:"media",subject:"Cotización SNSM2025 — RockTech (sin respuesta)",to:"fabiana.rifo@rocktechla.com / sergio@rocktechla.com",context:"Cotización enviada el 10 abril. Sin respuesta aún.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#sent/19d790b9da51a58a"},
+  // ── PROYECTO 1: 6ta Comisaría ────────────────────────
+  {id:"gf1",projectId:"p1",urgency:"alta",subject:"6ta Comisaría — Empalme eléctrico ENEL pendiente (reunión 15 abr)",to:"DOM / Grace Arcos (garcos@recoleta.cl)",context:"DOM se comprometió a gestionar empalme eléctrico con ENEL con documentación firmada por el Alcalde. Reunión de seguimiento programada para el miércoles 15 abril. Pendiente confirmar avance.",sentDate:"2026-03-30",daysPending:14,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d3f87fce8e5784"},
+  {id:"gf11",projectId:"p1",urgency:"alta",subject:"6ta Comisaría — Corrección antecedentes: SECPLA como ITS del proyecto",to:"María Paz Juica (mjuica@recoleta.cl)",context:"María Paz solicitó el 6 abril enviar antecedentes corregidos estableciendo a SECPLA como ITS del proyecto. El 8 abril se hizo entrega del proyecto completo. Confirmar si fue aceptado correctamente.",sentDate:"2026-04-08",daysPending:5,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d1c4a8a983aa5c"},
+  // ── PROYECTO 3: CCTV Centros Culturales ─────────────
+  {id:"gf6",projectId:"p3",urgency:"alta",subject:"CCTV Centros Culturales — CDP emitido, iniciar licitación en MP",to:"María Paz Juica / Alvaro Porzio (aporzio@recoleta.cl)",context:"CDP N°79 emitido el 1 abril. Cuenta: 114.05.01.443, CC: 712234. Antecedentes entregados el 25 marzo. Pendiente confirmar ingreso a Mercado Público y fecha de publicación.",sentDate:"2026-04-01",daysPending:12,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d2665ac1e575ac"},
+  // ── PROYECTO 4: Cámaras UV N°32 GORE ────────────────
+  {id:"gf7",projectId:"p4",urgency:"media",subject:"Cámaras UV N°32 — Certificados BNUP pendientes de respuesta",to:"María Paz Juica (mjuica@recoleta.cl)",context:"Al 13 abril solo hay Certificados de Número del proyecto. Los BNUP aún no han llegado. María Paz consultó el 13 abril sobre su estado. Adjudicación programada para el 30 de abril.",sentDate:"2026-04-13",daysPending:0,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d871327ac64df4"},
 ];
 
 const INIT_P = [
-  {id:"p1",name:"Cámaras UV N°32 — GORE",budget:914000000,stage:"Licitación",status:"En curso",deadline:"",financier:"GORE",program:"FNDR",desc:"Sistema de cámaras de vigilancia urbana para sectores de Recoleta. Licitación activa en Mercado Público.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
-  {id:"p2",name:"Central Monitoreo SPD / SNSM2025",budget:98000000,stage:"Ejecución",status:"Con alerta",deadline:"2026-04-16",financier:"SPD",program:"FNSP",desc:"Central de monitoreo SPD y postaciones SNSM2025. Múltiples cotizaciones en curso. Ficha modificación plazo pendiente aprobación SPD.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
-  {id:"p3",name:"Red Zona Norte/Sur Recoleta",budget:800000000,stage:"Diseño",status:"Pendiente",deadline:"",financier:"GORE",program:"FNDR",desc:"Diseño de red de seguridad para zonas norte y sur de Recoleta.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
-  {id:"p4",name:"CCTV DISEHU — Ingeniería Procesos",budget:0,stage:"Completado",status:"Completado",deadline:"",financier:"Municipal",program:"Presupuesto Municipal",desc:"Modelo operativo integral Central CCTV. Completado y entregado.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]}
+  {id:"p1",name:"Servicio de Habilitación Tecnológica 6ta Comisaría",budget:40000000,stage:"Formulación",status:"En curso",deadline:"",financier:"SPD",program:"FNSP",desc:"Servicio de habilitación tecnológica sala de televigilancia en la Sexta Comisaría de Carabineros de Recoleta. ID convenio referencia: 1431841-10-LE25. Pendiente definición de ITS y empalme eléctrico con ENEL.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
+  {id:"p2",name:"Integración de Cámaras de Televigilancia en la Comuna de Recoleta",budget:100000000,stage:"Licitación",status:"En curso",deadline:"",financier:"SPD",program:"FNSP — SNSM2025",desc:"Integración de cámaras de televigilancia en la comuna. 7 postaciones nuevas galvanizadas 15m, cámaras PTZ reconocimiento facial y ANPR, transmisión inalámbrica. ID SPD: SNSM23-STP-0039. Ficha de modificación de plazo enviada a SPD pendiente aprobación.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
+  {id:"p3",name:"Sistemas de CCTV, Centros Culturales",budget:26000000,stage:"Licitación",status:"En curso",deadline:"",financier:"SPD",program:"FNSP",desc:"Sistema de CCTV para centros culturales de Recoleta. CDP N°79 emitido. Antecedentes entregados a SECPLA el 25 marzo. Pendiente publicación en Mercado Público.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
+  {id:"p4",name:"Cámaras de Televigilancia UV N°32",budget:914000000,stage:"Adjudicación",status:"En curso",deadline:"2026-04-30",financier:"GORE",program:"FNDR",desc:"Cámaras de vigilancia urbana para sectores de Recoleta. Adjudicación programada para el 30 de abril. Pendiente recepción de BNUP.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
+  {id:"p5",name:"Habilitación Sala de Monitoreo Edificio Consistorial e Integración Puntos de Cámaras",budget:0,stage:"Licitación",status:"Con alerta",deadline:"2026-04-16",financier:"Municipal",program:"Presupuesto Municipal",desc:"Habilitación sala de monitoreo en edificio consistorial e integración de puntos de cámaras, Comuna de Recoleta. Ex licitación ID 1431841-10-B226 declarada desierta. Actualmente en trato directo, a la espera de propuesta técnica y económica de empresas.",notes:"",aiSummary:"",licitId:"1431841-10-B226",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]}
 ];
 const EF = {name:"",budget:"",stage:"Formulación",status:"Pendiente",deadline:"",financier:"GORE",program:"",desc:"",notes:"",licitId:""};
 
@@ -45,6 +165,10 @@ export default function Page(){
   const w=useW();const mob=w<768;const S=st();
   const[projects,setProjects]=useState(()=>S.get("sp_proj")||INIT_P);
   const[gf,setGf]=useState(()=>S.get("sp_gf")||GF_INIT);
+  const[boss,setBoss]=useState(()=>S.get("sp_boss")||BOSS_INIT);
+  const[clockData]=useState(ALL_CLOCK);
+  const[clockMonth,setClockMonth]=useState("2026-04");
+  const[clockOpen,setClockOpen]=useState(false);
   const[sel,setSel]=useState(null);const[tab,setTab]=useState("overview");const[view,setView]=useState("dash");
   const[msgs,setMsgs]=useState([{role:"assistant",content:"Hola Alexis 👋\n\nSoy tu Asistente SECPLA. Conozco tu cartera, seguimientos de Gmail, licitaciones y documentos.\n\nEjemplos:\n• ¿Qué seguimientos están críticos?\n• ¿Cuándo vence el plazo de la sala de monitoreo?\n• Resumen ejecutivo para reunión con el Alcalde"}]);
   const[input,setInput]=useState("");const[loading,setLoading]=useState(false);
@@ -60,6 +184,8 @@ export default function Page(){
 
   const saveP=ps=>{setProjects(ps);S.set("sp_proj",ps);};
   const saveGf=fs=>{setGf(fs);S.set("sp_gf",fs);};
+  const saveBoss=bs=>{setBoss(bs);S.set("sp_boss",bs);};
+  const toggleBoss=(id,note="")=>saveBoss(boss.map(b=>b.id===id?{...b,status:b.status==="pendiente"?"completado":"pendiente",completedNote:note||b.completedNote,completedAt:new Date().toISOString().slice(0,10)}:b));
   const proj=projects.find(p=>p.id===sel);
   const resolveFollow=(id)=>saveGf(gf.map(f=>f.id===id?{...f,status:"resuelto",resolvedAt:new Date().toISOString().slice(0,10)}:f));
 
@@ -278,6 +404,148 @@ export default function Page(){
 
       <GmailPanel/>
 
+      {/* ── SIEVAP COUNTDOWN ── */}
+      {(()=>{
+        const now=new Date();
+        const elapsed=Math.min(SIEVAP_TOTAL, Math.max(0, daysBetween(SIEVAP_START, now)));
+        const remaining=Math.max(0, daysBetween(now, SIEVAP_DEADLINE));
+        const pct=Math.min(100,Math.round((elapsed/SIEVAP_TOTAL)*100));
+        const overdue=now>SIEVAP_DEADLINE;
+        const critical=!overdue&&remaining<=3;
+        const warning=!overdue&&remaining<=7&&remaining>3;
+        const barColor=overdue?"#ef4444":critical?"#f97316":warning?"#f59e0b":"#3b82f6";
+        const bgColor=overdue?"#fef2f2":critical?"#fff7ed":warning?"#fffbeb":"#eff6ff";
+        const borderColor=overdue?"#ef4444":critical?"#f97316":warning?"#f59e0b":"#3b82f6";
+        return(
+          <div style={{background:bgColor,borderRadius:12,padding:18,border:`2px solid ${borderColor}`,marginBottom:20}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                  <span style={{fontSize:F(18)}}>⏳</span>
+                  <span style={{fontSize:F(13),fontWeight:800,color:borderColor,textTransform:"uppercase",letterSpacing:0.5}}>
+                    {overdue?"⚠️ VENCIDO":critical?"🔴 PLAZO CRÍTICO":warning?"🟠 PLAZO PRÓXIMO":"Plazo SIEVAP"}
+                  </span>
+                </div>
+                <div style={{fontSize:F(12),color:"#475569",lineHeight:1.5}}>
+                  Subsanación observaciones <strong>SNSM25-STP-0113</strong><br/>
+                  Integración de Cámaras de Televigilancia · SPD<br/>
+                  <span style={{fontSize:F(10),color:"#94a3b8"}}>⚠️ 3ra instancia de observaciones — resolverlas en su totalidad</span>
+                </div>
+              </div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div style={{fontSize:F(overdue?16:24),fontWeight:900,color:borderColor,lineHeight:1}}>
+                  {overdue?`${Math.abs(remaining)} d.h. vencido`:`${remaining}`}
+                </div>
+                {!overdue&&<div style={{fontSize:F(11),color:"#64748b",marginTop:2}}>días hábiles restantes</div>}
+              </div>
+            </div>
+
+            {/* Barra progreso */}
+            <div style={{background:"#e2e8f0",borderRadius:20,height:14,overflow:"hidden",marginBottom:10}}>
+              <div style={{height:"100%",width:`${pct}%`,background:barColor,borderRadius:20,transition:"width 0.5s ease",
+                background:`linear-gradient(90deg,${barColor},${barColor}cc)`}}/>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:F(10),color:"#64748b",marginBottom:14}}>
+              <span>Inicio: {fDate("2026-04-09")} (Día 1)</span>
+              <span style={{fontWeight:700,color:borderColor}}>{elapsed}/{SIEVAP_TOTAL} días corridos</span>
+              <span>Límite: {fDate("2026-04-24")}</span>
+            </div>
+
+            {/* Hitos */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+              {[
+                {l:"Inicio solicitud",v:fDate("2026-04-09"),i:"📅",c:"#64748b"},
+                {l:"Hoy",v:fDate(now.toISOString().slice(0,10)),i:"📍",c:borderColor},
+                {l:"Fecha límite",v:fDate("2026-04-24"),i:overdue?"🚨":"⏰",c:borderColor}
+              ].map(({l,v,i,c})=>(
+                <div key={l} style={{background:"white",borderRadius:8,padding:"9px 12px",border:`1px solid ${c}33`,textAlign:"center"}}>
+                  <div style={{fontSize:F(14)}}>{i}</div>
+                  <div style={{fontSize:F(10),color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.5,marginTop:2}}>{l}</div>
+                  <div style={{fontSize:F(12),fontWeight:700,color:c,marginTop:2}}>{v}</div>
+                </div>
+              ))}
+            </div>
+
+            {(critical||overdue)&&(
+              <div style={{marginTop:12,padding:"10px 14px",background:overdue?"#fee2e2":"#ffedd5",borderRadius:8,fontSize:F(12),color:overdue?"#991b1b":"#9a3412",fontWeight:600}}>
+                {overdue?"⚠️ Plazo VENCIDO. Ingresar las observaciones al SIEVAP de inmediato y coordinar con SPD."
+                  :`🚨 Quedan solo ${remaining} día${remaining!==1?"s":""} corrido${remaining!==1?"s":""} para subir las observaciones al SIEVAP. ¡Esta es la 3ra instancia — resolver TODO sin excepciones!`}
+              </div>
+            )}
+            <div style={{marginTop:10,padding:"8px 12px",background:"white",borderRadius:7,border:"1px solid #e2e8f0",fontSize:F(11),color:"#64748b"}}>
+              📄 Fuente: <strong>Certificado de Revisión de Diseño - Observada.pdf</strong> · SIEVAP spd-sistemas@minsegpublica.gob.cl · 9 abr 2026 · <em>«15 días corridos para corregir las observaciones»</em>
+            </div>
+            <a href="https://mail.google.com/a/recoleta.cl/#all/19d743c80d701dbc" target="_blank" rel="noreferrer"
+              style={{display:"inline-block",marginTop:12,fontSize:F(12),color:"#1d4ed8",fontWeight:700,textDecoration:"none"}}>
+              ✉️ Ver correo de solicitud (María Paz) →
+            </a>
+          </div>
+        );
+      })()}
+
+      {/* ── SOLICITUDES JEFATURA ── */}
+      {(()=>{
+        const pending=boss.filter(b=>b.status==="pendiente");
+        const done=boss.filter(b=>b.status==="completado");
+        const BC={"crítica":"#dc2626","alta":"#f97316","media":"#f59e0b"};
+        const BL={"crítica":"🔴","alta":"🟠","media":"🟡"};
+        const fromColor={"María Paz Juica":"#7c3aed","Grace Arcos":"#0284c7"};
+        const fromBg={"María Paz Juica":"#f5f3ff","Grace Arcos":"#eff6ff"};
+        return(
+          <div style={{marginTop:24}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <div style={{fontSize:F(13),fontWeight:700,color:"#7c3aed",textTransform:"uppercase",letterSpacing:1}}>
+                👩‍💼 Solicitudes de Jefatura — {pending.length} pendientes
+              </div>
+              {done.length>0&&<span style={{fontSize:F(11),color:"#94a3b8"}}>{done.length} completadas</span>}
+            </div>
+            {pending.map(b=>{
+              const fp=projects.find(p=>p.id===b.projectId);
+              return(
+                <div key={b.id} style={{background:"white",borderRadius:10,padding:16,border:`2px solid ${fromColor[b.from]||"#7c3aed"}33`,marginBottom:12,borderLeft:`5px solid ${fromColor[b.from]||"#7c3aed"}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}}>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,flexWrap:"wrap"}}>
+                        <span style={{fontSize:F(12),fontWeight:800,padding:"3px 10px",borderRadius:20,background:fromBg[b.from]||"#f5f3ff",color:fromColor[b.from]||"#7c3aed"}}>👩‍💼 {b.from}</span>
+                        <span style={{fontSize:F(11),padding:"2px 8px",borderRadius:8,background:BC[b.urgency]+"15",color:BC[b.urgency],fontWeight:700}}>{BL[b.urgency]} {b.urgency}</span>
+                        {fp&&<span style={{fontSize:F(10),padding:"2px 8px",borderRadius:6,background:"#f1f5f9",color:"#475569"}}>{fp.name.split(" ").slice(0,4).join(" ")}…</span>}
+                      </div>
+                      <div style={{fontSize:F(14),color:"#0f172a",lineHeight:1.5,fontWeight:500}}>{b.task}</div>
+                    </div>
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      <div style={{fontSize:F(11),color:"#94a3b8"}}>{fDate(b.requestDate)}</div>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
+                    <a href={b.threadUrl} target="_blank" rel="noreferrer" style={{fontSize:F(12),color:"#1d4ed8",padding:"6px 14px",borderRadius:6,background:"#eff6ff",textDecoration:"none",fontWeight:700}}>✉️ Ver correo</a>
+                    <button onClick={()=>toggleBoss(b.id)} style={{...btn("#dcfce7","#166534"),fontSize:F(12),padding:"6px 14px"}}>✅ Marcar completado</button>
+                  </div>
+                </div>
+              );
+            })}
+            {done.length>0&&(
+              <details style={{marginTop:4}}>
+                <summary style={{fontSize:F(11),color:"#94a3b8",cursor:"pointer",padding:"6px 0"}}>Ver {done.length} solicitudes completadas</summary>
+                {done.map(b=>(
+                  <div key={b.id} style={{background:"#f8fafc",borderRadius:8,padding:14,border:"1px solid #e2e8f0",marginBottom:8,opacity:0.7,borderLeft:`4px solid #22c55e`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                      <div style={{flex:1}}>
+                        <span style={{fontSize:F(11),fontWeight:700,color:"#059669",marginRight:8}}>✅ Completado</span>
+                        <span style={{fontSize:F(11),color:"#64748b",fontWeight:600}}>{b.from}</span>
+                        <div style={{fontSize:F(12),color:"#64748b",marginTop:4,textDecoration:"line-through"}}>{b.task}</div>
+                        {b.completedNote&&<div style={{fontSize:F(11),color:"#059669",marginTop:3,fontStyle:"italic"}}>{b.completedNote}</div>}
+                      </div>
+                      <button onClick={()=>toggleBoss(b.id)} style={{...btn("#fef2f2","#dc2626"),fontSize:F(11),padding:"4px 10px"}}>↩ Reabrir</button>
+                    </div>
+                  </div>
+                ))}
+              </details>
+            )}
+            <button onClick={()=>saveBoss(BOSS_INIT)} style={{fontSize:F(10),color:"#94a3b8",background:"none",border:"none",cursor:"pointer",marginTop:4,padding:0}}>↺ Restablecer solicitudes</button>
+          </div>
+        );
+      })()}
+
       <div style={{fontSize:F(12),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:10,marginTop:24}}>Cartera Completa</div>
       {projects.map(p=>(
         <div key={p.id} onClick={()=>{setSel(p.id);setTab("overview");setView("project");}} style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0",marginBottom:12,borderLeft:`4px solid ${SC[p.status]}`,cursor:"pointer"}}>
@@ -303,7 +571,145 @@ export default function Page(){
           </div>
         </div>
       ))}
-      <button onClick={()=>{setForm(EF);setEditId(null);setShowForm(true);}} style={{...btn("#0f172a"),width:"100%",marginTop:4,padding:14,fontSize:F(13)}}>+ Nuevo Proyecto</button>
+      {/* ── RELOJ CONTROL ── */}
+      {(()=>{
+        const today=new Date();
+        const todayStr=today.toISOString().slice(0,10);
+        const nowMin=today.getHours()*60+today.getMinutes();
+
+        // meses disponibles
+        const months=[...new Set(ALL_CLOCK.map(r=>r.date.slice(0,7)))].sort();
+        const selMonth=clockMonth;
+        const monthData=ALL_CLOCK.filter(r=>r.date.startsWith(selMonth));
+
+        // calcular extras por día
+        const days=monthData.map(r=>{
+          const j=jornada(r.date);
+          const eMin=toMin(r.entrada);
+          const sMin=toMin(r.salida);
+          const isToday=r.date===todayStr;
+          if(eMin===null&&sMin===null)return{...r,j,worked:null,extra:null,alert:"sin_registro"};
+          if(sMin===null&&!isToday)return{...r,j,worked:null,extra:null,alert:"sin_salida_hist"};
+          if(sMin===null&&isToday){
+            const live=Math.max(0,nowMin-(eMin+j));
+            return{...r,j,worked:null,extra:null,alert:"trabajando",expectedSalida:eMin+j,liveExtra:live};
+          }
+          if(eMin===null)return{...r,j,worked:null,extra:null,alert:"sin_entrada_hist"};
+          const worked=sMin-eMin;
+          const extra=worked-j;
+          return{...r,j,worked,extra,alert:null};
+        });
+
+        const completed=days.filter(d=>d.extra!==null);
+        const totalExtra=completed.reduce((a,d)=>a+(d.extra||0),0);
+        const extraH=Math.floor(Math.abs(totalExtra)/60);
+        const extraM=Math.abs(totalExtra)%60;
+
+        // acumulado todo el año
+        const yearAll=ALL_CLOCK.map(r=>{
+          const j=jornada(r.date);const eMin=toMin(r.entrada);const sMin=toMin(r.salida);
+          if(!eMin||!sMin)return null;
+          return sMin-eMin-j;
+        }).filter(x=>x!==null);
+        const yearTotal=yearAll.reduce((a,v)=>a+v,0);
+
+        // alerta hoy
+        const todayRec=days.find(d=>d.date===todayStr);
+        const netColor=totalExtra>=0?"#059669":"#ef4444";
+        const yearColor=yearTotal>=0?"#059669":"#ef4444";
+
+        const [yr,mo]=selMonth.split("-").map(Number);
+
+        return(
+          <div style={{marginTop:24}}>
+            {/* Header */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
+              <div style={{fontSize:F(13),fontWeight:700,color:"#0284c7",textTransform:"uppercase",letterSpacing:1}}>🕐 Reloj Control 2026</div>
+              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                {months.map(m=>{
+                  const[,mm]=m.split("-").map(Number);
+                  return<button key={m} onClick={()=>setClockMonth(m)} style={{...btn(m===selMonth?"#0284c7":"#f1f5f9",m===selMonth?"white":"#374151"),fontSize:F(11),padding:"5px 10px"}}>{MONTHS_ES[mm]}</button>;
+                })}
+                <button onClick={()=>setClockOpen(o=>!o)} style={{...btn("#e0f2fe","#0369a1"),fontSize:F(11),padding:"5px 10px"}}>{clockOpen?"▲ Ocultar":"▼ Detalle"}</button>
+              </div>
+            </div>
+
+            {/* KPIs del mes */}
+            <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:12}}>
+              {[
+                {l:`Extra ${MONTHS_ES[mo]}`,v:(totalExtra>=0?"+":"")+fMin(totalExtra),c:netColor,bg:totalExtra>=0?"#f0fdf4":"#fef2f2",i:"⏱️"},
+                {l:"Horas completas",v:`${extraH}h ${extraM}m`,c:"#7c3aed",bg:"#f5f3ff",i:"✅"},
+                {l:"Días registrados",v:`${completed.length}d`,c:"#0284c7",bg:"#eff6ff",i:"📅"},
+                {l:"Acum. anual 2026",v:(yearTotal>=0?"+":"")+fMin(yearTotal),c:yearColor,bg:yearTotal>=0?"#f0fdf4":"#fef2f2",i:"📊"},
+              ].map(({l,v,c,bg,i})=>(
+                <div key={l} style={{background:bg,borderRadius:10,padding:14,border:`1px solid ${c}22`}}>
+                  <div style={{fontSize:F(10),color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:0.7,marginBottom:4}}>{l}</div>
+                  <div style={{fontSize:F(17),fontWeight:800,color:c}}>{i} {v}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Alerta hoy */}
+            {selMonth==="2026-04"&&todayRec&&todayRec.alert==="trabajando"&&(
+              <div style={{padding:"12px 16px",background:"#eff6ff",border:"2px solid #0284c7",borderRadius:10,marginBottom:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+                  <div>
+                    <div style={{fontSize:F(13),fontWeight:800,color:"#0284c7",marginBottom:2}}>🟢 En jornada — Entrada {todayRec.entrada} · {isFri(todayStr)?"Viernes 8h":"9h"}</div>
+                    <div style={{fontSize:F(12),color:"#475569"}}>
+                      Salida normal: <strong>{String(Math.floor(todayRec.expectedSalida/60)).padStart(2,"0")}:{String(todayRec.expectedSalida%60).padStart(2,"0")}</strong>
+                      {todayRec.liveExtra>0&&<span style={{color:"#7c3aed",fontWeight:700,marginLeft:10}}>· +{fMin(todayRec.liveExtra)} extra ahora</span>}
+                    </div>
+                  </div>
+                  {todayRec.liveExtra>0&&<div style={{fontSize:F(20),fontWeight:900,color:"#7c3aed"}}>+{fMin(todayRec.liveExtra)}</div>}
+                </div>
+              </div>
+            )}
+            {selMonth==="2026-04"&&!todayRec&&(
+              <div style={{padding:"12px 16px",background:"#fef2f2",border:"2px solid #ef4444",borderRadius:10,marginBottom:12,fontSize:F(13),color:"#991b1b",fontWeight:600}}>
+                🚨 Hoy no hay registro de entrada. ¿Olvidaste marcar?
+              </div>
+            )}
+
+            {/* Tabla detalle */}
+            {clockOpen&&(
+              <div style={{background:"white",borderRadius:10,border:"1px solid #e2e8f0",overflow:"hidden",marginTop:4}}>
+                <div style={{padding:"9px 14px",background:"#f8fafc",borderBottom:"1px solid #e2e8f0",display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:4}}>
+                  {["Fecha","Jornada","Entrada","Salida","Extra"].map(h=><div key={h} style={{fontSize:F(10),fontWeight:700,color:"#64748b",textTransform:"uppercase"}}>{h}</div>)}
+                </div>
+                {[...days].reverse().map(d=>{
+                  const isToday=d.date===todayStr;
+                  const ec=d.extra>0?"#059669":d.extra<0?"#ef4444":"#64748b";
+                  return(
+                    <div key={d.date} style={{padding:"10px 14px",borderBottom:"1px solid #f8fafc",display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:4,background:isToday?"#eff6ff":"white",alignItems:"center"}}>
+                      <div style={{fontSize:F(12),fontWeight:isToday?700:400,color:isToday?"#0284c7":"#0f172a"}}>
+                        {fDate(d.date)}{isToday&&<span style={{fontSize:F(9),marginLeft:4,color:"#0284c7",fontWeight:700}}>HOY</span>}
+                        {isFri(d.date)&&<span style={{fontSize:F(9),marginLeft:4,color:"#d97706"}}>VIE</span>}
+                      </div>
+                      <div style={{fontSize:F(11),color:"#94a3b8"}}>{d.j===480?"8h":"9h"}</div>
+                      <div style={{fontSize:F(12),color:"#0f172a"}}>{d.entrada||"—"}</div>
+                      <div style={{fontSize:F(12),color:d.salida?"#0f172a":"#f59e0b"}}>{d.salida||(isToday?"⏳":"—")}</div>
+                      <div style={{fontSize:F(13),fontWeight:700,color:d.extra!=null?ec:"#94a3b8"}}>
+                        {d.extra!=null?(d.extra>0?`+${fMin(d.extra)}`:d.extra<0?`-${fMin(Math.abs(d.extra))}`:"="):"—"}
+                      </div>
+                    </div>
+                  );
+                })}
+                <div style={{padding:"10px 14px",background:"#f1f5f9",borderTop:"2px solid #e2e8f0",display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:4}}>
+                  <div style={{fontSize:F(12),fontWeight:700,color:"#0f172a",gridColumn:"1/5"}}>TOTAL {MONTHS_ES[mo].toUpperCase()}</div>
+                  <div style={{fontSize:F(14),fontWeight:900,color:netColor}}>{totalExtra>=0?"+":""}{fMin(totalExtra)}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Proyección */}
+            <div style={{marginTop:10,padding:"10px 14px",background:"#f8fafc",borderRadius:8,border:"1px solid #e2e8f0",fontSize:F(11),color:"#64748b"}}>
+              💡 <strong style={{color:yearColor}}>{fMin(Math.abs(yearTotal))}</strong> {yearTotal>=0?"acumuladas en 2026":"a deber en 2026"} · {MONTHS_ES[mo]}: <strong style={{color:netColor}}>{totalExtra>=0?"+":""}{fMin(totalExtra)}</strong> · Para completar 1h más necesitas <strong>{fMin(60-(((totalExtra%60)+60)%60)||60)}</strong>
+            </div>
+          </div>
+        );
+      })()}
+
+      <button onClick={()=>{setForm(EF);setEditId(null);setShowForm(true);}} style={{...btn("#0f172a"),width:"100%",marginTop:16,padding:14,fontSize:F(13)}}>+ Nuevo Proyecto</button>
     </div>
   );
 
