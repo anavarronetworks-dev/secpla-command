@@ -94,34 +94,58 @@ const JORNADA_MIN = 9 * 60;
 const isFri = d => new Date(d+"T12:00:00").getDay()===5;
 const jornada = d => isFri(d) ? 480 : 540;
 const ALL_CLOCK = [
-  {date:"2026-01-15",entrada:"07:53",salida:"17:03"},{date:"2026-01-19",entrada:"08:01",salida:"12:54"},
-  {date:"2026-01-20",entrada:"07:49",salida:"17:05"},{date:"2026-01-21",entrada:"07:49",salida:"16:56"},
-  {date:"2026-01-22",entrada:"08:07",salida:"17:17"},{date:"2026-01-23",entrada:"07:51",salida:"16:11"},
-  {date:"2026-01-26",entrada:"07:48",salida:"17:28"},{date:"2026-01-27",entrada:"07:56",salida:"17:04"},
-  {date:"2026-01-28",entrada:"07:56",salida:"17:00"},{date:"2026-01-29",entrada:"07:39",salida:"16:53"},
+  {date:"2026-01-29",entrada:null,salida:"16:53"},
   {date:"2026-01-30",entrada:"07:43",salida:"15:46"},
-  {date:"2026-02-04",entrada:"07:48",salida:"17:00"},{date:"2026-02-05",entrada:"07:42",salida:"16:44"},
-  {date:"2026-02-06",entrada:"08:05",salida:"16:13"},{date:"2026-02-09",entrada:"08:15",salida:"17:21"},
-  {date:"2026-02-10",entrada:"08:37",salida:"17:40"},{date:"2026-02-11",entrada:"07:44",salida:"16:56"},
-  {date:"2026-02-12",entrada:"07:44",salida:"16:56"},{date:"2026-02-13",entrada:"08:15",salida:null},
-  {date:"2026-02-16",entrada:"07:40",salida:"17:05"},{date:"2026-02-17",entrada:"07:42",salida:"16:52"},
-  {date:"2026-02-18",entrada:"07:57",salida:"17:04"},{date:"2026-02-19",entrada:"07:26",salida:"16:34"},
-  {date:"2026-02-20",entrada:"07:50",salida:"15:59"},{date:"2026-02-23",entrada:"07:45",salida:"16:50"},
-  {date:"2026-02-24",entrada:"07:49",salida:"16:53"},{date:"2026-02-26",entrada:"07:41",salida:"16:54"},
+  {date:"2026-02-04",entrada:"07:48",salida:"17:00"},
+  {date:"2026-02-05",entrada:"07:42",salida:"16:44"},
+  {date:"2026-02-06",entrada:"08:05",salida:"16:13"},
+  {date:"2026-02-09",entrada:"08:15",salida:"17:21"},
+  {date:"2026-02-10",entrada:"08:37",salida:"17:40"},
+  {date:"2026-02-11",entrada:"07:44",salida:"16:56"},
+  {date:"2026-02-12",entrada:"07:44",salida:"16:56"},
+  {date:"2026-02-13",entrada:"08:15",salida:null},
+  {date:"2026-02-16",entrada:"07:40",salida:"17:05"},
+  {date:"2026-02-17",entrada:"07:42",salida:"16:52"},
+  {date:"2026-02-18",entrada:"07:57",salida:"17:04"},
+  {date:"2026-02-19",entrada:"07:26",salida:"16:34"},
+  {date:"2026-02-20",entrada:"07:50",salida:"15:59"},
+  {date:"2026-02-23",entrada:"07:45",salida:"16:50"},
+  {date:"2026-02-24",entrada:"07:49",salida:"16:53"},
+  {date:"2026-02-25",entrada:null,salida:"17:07"},
+  {date:"2026-02-26",entrada:"07:41",salida:"16:54"},
   {date:"2026-02-27",entrada:"07:54",salida:"16:08"},
-  {date:"2026-03-09",entrada:"08:24",salida:"17:40"},{date:"2026-03-10",entrada:"08:36",salida:"17:40"},
-  {date:"2026-03-11",entrada:"08:14",salida:"17:27"},{date:"2026-03-12",entrada:"08:34",salida:"17:44"},
-  {date:"2026-03-13",entrada:"08:32",salida:"16:46"},{date:"2026-03-16",entrada:"08:26",salida:"17:29"},
-  {date:"2026-03-17",entrada:"08:21",salida:"17:33"},{date:"2026-03-18",entrada:"08:18",salida:"17:28"},
-  {date:"2026-03-19",entrada:"08:21",salida:"17:25"},{date:"2026-03-20",entrada:"08:16",salida:"16:12"},
-  {date:"2026-03-23",entrada:"08:39",salida:"17:48"},{date:"2026-03-24",entrada:"08:19",salida:"17:24"},
-  {date:"2026-03-25",entrada:"08:27",salida:"17:40"},{date:"2026-03-30",entrada:"08:33",salida:"17:36"},
+  {date:"2026-03-02",entrada:"08:35",salida:"17:38"},
+  {date:"2026-03-03",entrada:"08:25",salida:"17:41"},
+  {date:"2026-03-04",entrada:"08:29",salida:"17:36"},
+  {date:"2026-03-05",entrada:"08:26",salida:"17:31"},
+  {date:"2026-03-06",entrada:"08:21",salida:"16:28"},
+  {date:"2026-03-09",entrada:"08:24",salida:"17:40"},
+  {date:"2026-03-10",entrada:"08:36",salida:"17:40"},
+  {date:"2026-03-11",entrada:"08:14",salida:"17:27"},
+  {date:"2026-03-12",entrada:"08:34",salida:"17:44"},
+  {date:"2026-03-13",entrada:"08:32",salida:"16:46"},
+  {date:"2026-03-16",entrada:"08:26",salida:"17:29"},
+  {date:"2026-03-17",entrada:"08:21",salida:"17:33"},
+  {date:"2026-03-18",entrada:"08:18",salida:"17:28"},
+  {date:"2026-03-19",entrada:"08:21",salida:"17:25"},
+  {date:"2026-03-20",entrada:"08:16",salida:"16:12"},
+  {date:"2026-03-23",entrada:"08:39",salida:"17:48"},
+  {date:"2026-03-24",entrada:"08:19",salida:"17:24"},
+  {date:"2026-03-25",entrada:"08:27",salida:"17:40"},
+  {date:"2026-03-30",entrada:"08:33",salida:"17:36"},
   {date:"2026-03-31",entrada:"08:28",salida:"17:33"},
-  {date:"2026-04-01",entrada:"08:31",salida:"17:36"},{date:"2026-04-02",entrada:"08:34",salida:"17:32"},
-  {date:"2026-04-07",entrada:"08:42",salida:"18:26"},{date:"2026-04-08",entrada:"08:26",salida:"17:28"},
-  {date:"2026-04-09",entrada:"08:40",salida:"17:41"},{date:"2026-04-10",entrada:"08:21",salida:"16:34"},
-  {date:"2026-04-13",entrada:"08:26",salida:"17:37"},{date:"2026-04-14",entrada:"08:30",salida:null},
+  {date:"2026-04-01",entrada:"08:31",salida:"17:36"},
+  {date:"2026-04-02",entrada:"08:34",salida:"17:32"},
+  {date:"2026-04-06",entrada:"08:18",salida:"17:25"},
+  {date:"2026-04-07",entrada:"08:42",salida:"18:26"},
+  {date:"2026-04-08",entrada:"08:26",salida:"17:28"},
+  {date:"2026-04-09",entrada:"08:40",salida:"17:41"},
+  {date:"2026-04-10",entrada:"08:21",salida:"16:34"},
+  {date:"2026-04-13",entrada:"08:26",salida:"17:37"},
+  {date:"2026-04-14",entrada:"08:30",salida:"17:36"},
+  {date:"2026-04-15",entrada:"08:24",salida:null}
 ];
+
 const toMin=t=>{if(!t)return null;const[h,m]=t.split(":").map(Number);return h*60+m;};
 const fMin=m=>{const a=Math.abs(m);const h=Math.floor(a/60);const mn=a%60;return h>0?`${h}h ${mn}m`:`${mn}m`;};
 const MONTHS_ES=["","Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -167,48 +191,212 @@ export default function Page(){
   const[projects,setProjects]=useState(()=>S.get("sp_proj")||INIT_P);
   const[gf,setGf]=useState(()=>S.get("sp_gf")||GF_INIT);
   const[boss,setBoss]=useState(()=>S.get("sp_boss")||BOSS_INIT);
-  const[clockData]=useState(ALL_CLOCK);
+  // clockData: array dinámico. ALL_CLOCK es la semilla histórica,
+  // se sobreescribe al sincronizar con Gmail via clock_sync
+  const[clockData,setClockData]=useState(()=>{
+    const saved=S.get("sp_clock_data");
+    // Merge: usar guardado si es más reciente, sino usar ALL_CLOCK
+    if(saved&&Array.isArray(saved)&&saved.length>=ALL_CLOCK.length) return saved;
+    return ALL_CLOCK;
+  });
   const[clockMonth,setClockMonth]=useState("2026-04");
   const[clockOpen,setClockOpen]=useState(false);
   const[clockLiveData,setClockLiveData]=useState(()=>S.get("sp_clock_live")||{});
   const[checkingClock,setCheckingClock]=useState(false);
 
-  // ── checkClockNow: consulta reloj solo en ventanas permitidas ─────────
-  // Regla: lunes-viernes, solo 09:25-09:45 (entrada) y 18:15-18:30 (salida)
-  const checkClockNow = async (force=false) => {
+  // ── SCHEDULER ─────────────────────────────────────────────────────
+  // Horarios automáticos en hora Chile (America/Santiago)
+  // Reloj: 08:00 · 13:30 · 17:30  →  3 veces/día L-V
+  // Acuses: 08:05 · 11:00 · 14:00 · 17:35  →  4 veces/día L-V
+  // Granularidad: el setInterval verifica cada minuto si toca ejecutar
+  const CLOCK_SLOTS  = ["08:00","13:30","17:30"];
+  const RECEIPT_SLOTS = ["08:05","11:00","14:00","17:35"];
+  const schedulerRef = useRef(null);
+  const[readReceipts,setReadReceipts]=useState(()=>S.get("sp_receipts")||[]);
+  const[syncingReceipts,setSyncingReceipts]=useState(false);
+  // schedLog: registro de cada ejecución del scheduler con resultado
+  const[schedLog,setSchedLog]=useState(()=>S.get("sp_sched_log")||[]);
+  const[showSchedLog,setShowSchedLog]=useState(false);
+  const saveSchedLog = entries => { setSchedLog(entries); S.set("sp_sched_log",entries); };
+
+  // ── syncClockFromGmail: lee TODOS los registros desde Gmail ─────────────
+  // Se llama manualmente (botón Reloj) o automáticamente en ventanas 09:30/18:20 L-V
+  const syncClockFromGmail = async (silent=false) => {
+    if(!silent) setSyncStatus(p=>({...p,reloj:{state:"loading",ts:null,msg:"Leyendo Gmail..."}}));
     setCheckingClock(true);
     try {
       const res = await fetch("/api/ai", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ type: "clock_check" })
+        body: JSON.stringify({ type: "clock_sync", since: "2026/01/01" })
       });
-      const data = await res.json();
-      let result;
-      try { result = JSON.parse((data.text||"{}").replace(/```json|```/g,"").trim()); }
-      catch { result = {}; }
-      if(!result.blocked){
-        const today = new Date().toISOString().slice(0,10);
-        const updated = {...clockLiveData, [today]: result};
-        setClockLiveData(updated);
-        S.set("sp_clock_live", updated);
+      if(!res.ok) {
+        const errData = await res.json().catch(()=>({}));
+        const code = errData.errorCode||res.status;
+        setSyncStatus(p=>({...p,reloj:{state:"error",ts:new Date().toISOString(),msg:`Error ${code}: ${errData.errorMessage||"falla de red"}`,code}}));
+        return;
       }
-      return result;
-    } catch(e){ console.error("Clock check error", e); return {}; }
-    finally { setCheckingClock(false); }
+      const data = await res.json();
+      if(data.error) {
+        setSyncStatus(p=>({...p,reloj:{state:"error",ts:new Date().toISOString(),msg:`${data.errorCode}: ${data.errorMessage}`,code:data.errorCode}}));
+        return;
+      }
+      let newData;
+      try { newData = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
+      catch { newData = []; }
+      if(Array.isArray(newData) && newData.length > 0){
+        // Merge: preservar entradas históricas no cubiertas por Gmail
+        const gmailDates = new Set(newData.map(r=>r.date));
+        const historical = ALL_CLOCK.filter(r=>!gmailDates.has(r.date));
+        const merged = [...historical, ...newData].sort((a,b)=>a.date.localeCompare(b.date));
+        setClockData(merged);
+        S.set("sp_clock_data", merged);
+        const today = newData.find(r=>r.date===new Date().toISOString().slice(0,10));
+        const msg = today
+          ? `✓ ${newData.length} días · Hoy: Entrada ${today.entrada||"—"} · Salida ${today.salida||"en curso"}`
+          : `✓ ${newData.length} días sincronizados`;
+        setSyncStatus(p=>({...p,reloj:{state:"ok",ts:new Date().toISOString(),msg}}));
+      } else {
+        setSyncStatus(p=>({...p,reloj:{state:"warn",ts:new Date().toISOString(),msg:"No se encontraron registros en Gmail"}}));
+      }
+    } catch(e) {
+      setSyncStatus(p=>({...p,reloj:{state:"error",ts:new Date().toISOString(),msg:`Excepción: ${e.message}`,code:"EXCEPTION"}}));
+    }
+    setCheckingClock(false);
   };
 
-  // Auto-check silencioso al cargar si estamos en ventana horaria
-  useEffect(()=>{
-    const now = new Date();
-    const dow = now.getDay(); // 0=Dom
-    if(dow < 1 || dow > 5) return; // solo L-V
-    const hm = now.getHours()*100 + now.getMinutes();
-    if((hm>=925&&hm<=945)||(hm>=1815&&hm<=1830)){
-      const today = now.toISOString().slice(0,10);
-      if(!clockLiveData[today] || force){
-        checkClockNow();
+  // ── syncReadReceipts: lee acuses de lectura desde Gmail ─────────────
+  const syncReadReceipts = async (silent=false) => {
+    if(!silent) setSyncStatus(p=>({...p,acuses:{state:"loading",ts:null,msg:"Leyendo acuses de lectura..."}}));
+    setSyncingReceipts(true);
+    const startTs = new Date().toISOString();
+    try {
+      const res = await fetch("/api/ai", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ type:"read_receipts_sync", since:"2026/01/01" })
+      });
+      if(!res.ok){
+        const errData = await res.json().catch(()=>({}));
+        const code = errData.errorCode||String(res.status);
+        const msg = `HTTP_${code}: ${errData.errorMessage||res.statusText||"Error de red"}`;
+        setSyncStatus(p=>({...p,acuses:{state:"error",ts:startTs,msg,code}}));
+        addSchedLog("acuses","error",msg,code);
+        return;
       }
+      const data = await res.json();
+      if(data.error){
+        const msg = `${data.errorCode}: ${data.errorMessage}`;
+        setSyncStatus(p=>({...p,acuses:{state:"error",ts:startTs,msg,code:data.errorCode}}));
+        addSchedLog("acuses","error",msg,data.errorCode);
+        return;
+      }
+      let receipts;
+      try { receipts = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
+      catch(parseErr) {
+        const msg = `JSON_PARSE: ${parseErr.message} — respuesta: ${(data.text||"").slice(0,80)}`;
+        setSyncStatus(p=>({...p,acuses:{state:"error",ts:startTs,msg,code:"JSON_PARSE"}}));
+        addSchedLog("acuses","error",msg,"JSON_PARSE");
+        return;
+      }
+      if(Array.isArray(receipts)){
+        setReadReceipts(receipts);
+        S.set("sp_receipts", receipts);
+        const totalConf = receipts.reduce((a,e)=>a+(e.recipients?.filter(r=>r.readAt).length||0),0);
+        const msg = `✓ ${receipts.length} correos · ${totalConf} confirmaciones de lectura`;
+        setSyncStatus(p=>({...p,acuses:{state:"ok",ts:startTs,msg}}));
+        addSchedLog("acuses","ok",msg,null);
+      } else {
+        const msg = "EMPTY: respuesta no es un array válido";
+        setSyncStatus(p=>({...p,acuses:{state:"warn",ts:startTs,msg}}));
+        addSchedLog("acuses","warn",msg,null);
+      }
+    } catch(e) {
+      const code = e.name==="AbortError"?"TIMEOUT":e.name==="TypeError"?"NETWORK":e.code||"EXCEPTION";
+      const msg = `${code}: ${e.message}`;
+      setSyncStatus(p=>({...p,acuses:{state:"error",ts:startTs,msg,code}}));
+      addSchedLog("acuses","error",msg,code);
     }
+    setSyncingReceipts(false);
+  };
+
+  // ── addSchedLog: añade una entrada al registro de ejecuciones ─────
+  const addSchedLog = (type, result, msg, code) => {
+    const entry = {
+      id: Math.random().toString(36).slice(2,7),
+      type,         // "reloj" | "acuses"
+      result,       // "ok" | "warn" | "error"
+      msg,
+      code: code||null,
+      ts: new Date().toISOString(),
+    };
+    setSchedLog(prev => {
+      const updated = [entry, ...prev].slice(0,50); // máximo 50 entradas
+      S.set("sp_sched_log", updated);
+      return updated;
+    });
+  };
+
+  // ── MOTOR DE SCHEDULING AUTOMÁTICO ───────────────────────────────
+  // Funciona como un cron interno: verifica cada 60 segundos si
+  // la hora Chile actual coincide con algún slot configurado.
+  // Si coincide Y no ejecutó ese slot en las últimas 50 minutos → ejecuta.
+  // Usa refs para evitar closures stale.
+  const syncClockRef = useRef(null);
+  const syncReceiptsRef = useRef(null);
+  syncClockRef.current = syncClockFromGmail;
+  syncReceiptsRef.current = syncReadReceipts;
+
+  useEffect(()=>{
+    // Helper: hora actual en Chile "HH:MM"
+    const nowChileHHMM = () => {
+      const d = new Date(new Date().toLocaleString("en-US",{timeZone:"America/Santiago"}));
+      return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+    };
+    // Helper: día de semana Chile (1=Lun … 5=Vie)
+    const dowChile = () => {
+      const d = new Date(new Date().toLocaleString("en-US",{timeZone:"America/Santiago"}));
+      return d.getDay();
+    };
+    // Helper: ¿el slot ya ejecutó recientemente? (últimos 50 min)
+    const alreadyRan = (type, slotHHMM) => {
+      const key = `sp_last_auto_${type}_${slotHHMM.replace(":","_")}`;
+      const last = localStorage.getItem(key);
+      if(!last) return false;
+      const mins = (Date.now()-new Date(last).getTime())/60000;
+      return mins < 50;
+    };
+    const markRan = (type, slotHHMM) => {
+      const key = `sp_last_auto_${type}_${slotHHMM.replace(":","_")}`;
+      localStorage.setItem(key, new Date().toISOString());
+    };
+
+    const tick = () => {
+      const dow = dowChile();
+      if(dow<1||dow>5) return; // solo L-V
+      const hhmm = nowChileHHMM();
+
+      // ── Reloj: 08:00 · 13:30 · 17:30 ──
+      for(const slot of ["08:00","13:30","17:30"]){
+        if(hhmm===slot && !alreadyRan("reloj",slot)){
+          markRan("reloj",slot);
+          syncClockRef.current(true); // silent=true
+        }
+      }
+      // ── Acuses: 08:05 · 11:00 · 14:00 · 17:35 ──
+      for(const slot of ["08:05","11:00","14:00","17:35"]){
+        if(hhmm===slot && !alreadyRan("acuses",slot)){
+          markRan("acuses",slot);
+          syncReceiptsRef.current(true);
+        }
+      }
+    };
+
+    // Ejecutar inmediatamente al montar (por si el tab se abrió justo en un slot)
+    tick();
+    // Luego verificar cada 60 segundos
+    schedulerRef.current = setInterval(tick, 60000);
+    return () => {
+      if(schedulerRef.current) clearInterval(schedulerRef.current);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
   const[sel,setSel]=useState(null);const[tab,setTab]=useState("overview");const[view,setView]=useState("dash");
@@ -219,7 +407,18 @@ export default function Page(){
   const[driveSync,setDriveSync]=useState(()=>S.get("sp_drive")||{});
   const[syncingDrive,setSyncingDrive]=useState(false);
   const[syncingCal,setSyncingCal]=useState(false);
-  const[verifyingTask,setVerifyingTask]=useState(null); // taskId being verified
+  const[verifyingTask,setVerifyingTask]=useState(null);
+  // syncStatus: estado visual por cada botón de sincronización
+  // state: "idle"|"loading"|"ok"|"warn"|"error"
+  const[syncStatus,setSyncStatus]=useState(()=>S.get("sp_sync_status")||{
+    drive:   {state:"idle",ts:null,msg:""},
+    cal:     {state:"idle",ts:null,msg:""},
+    gmail:   {state:"idle",ts:null,msg:""},
+    reloj:   {state:"idle",ts:null,msg:""},
+    convenio:{state:"idle",ts:null,msg:""},
+    acuses:  {state:"idle",ts:null,msg:""},
+  });
+  const saveSyncStatus=s=>{setSyncStatus(s);S.set("sp_sync_status",s);};
   // ──────────────────────────────────────────────────
   const[msgs,setMsgs]=useState([{role:"assistant",content:"Hola Alexis 👋\n\nSoy tu Asistente SECPLA. Conozco tu cartera, seguimientos de Gmail, licitaciones y documentos.\n\nEjemplos:\n• ¿Qué seguimientos están críticos?\n• ¿Cuándo vence el plazo de la sala de monitoreo?\n• Resumen ejecutivo para reunión con el Alcalde"}]);
   const[input,setInput]=useState("");const[loading,setLoading]=useState(false);
@@ -253,9 +452,10 @@ export default function Page(){
     calendarEvents.filter(e => e.projectId === projId || detectProject((e.title||"")+(e.description||"")) === projId);
 
   // ── SINCRONIZAR DRIVE ─────────────────────────────
-  // ── DRIVE SYNC — usa MCP Google Drive real vía /api/ai ───────────
+  // ── DRIVE SYNC — lee carpetas reales con feedback visual ────────────
   const syncDrive = async () => {
     setSyncingDrive(true);
+    setSyncStatus(p=>({...p,drive:{state:"loading",ts:null,msg:"Leyendo carpetas Drive..."}}));
     try {
       const res = await fetch("/api/ai", {
         method:"POST",
@@ -296,8 +496,15 @@ export default function Page(){
         });
         saveP(upd);
         saveDriveSync(newDs);
+        const nProj=updates.length;
+        setSyncStatus(p=>({...p,drive:{state:"ok",ts:new Date().toISOString(),msg:`✓ ${nProj} proyecto(s) actualizados desde Drive`}}));
+      } else {
+        setSyncStatus(p=>({...p,drive:{state:"warn",ts:new Date().toISOString(),msg:"Drive conectado pero sin datos nuevos"}}));
       }
-    } catch(e){ console.error("Drive sync error", e); }
+    } catch(e){
+      console.error("Drive sync error", e);
+      setSyncStatus(p=>({...p,drive:{state:"error",ts:new Date().toISOString(),msg:`Error: ${e.message}`,code:"DRIVE_EXCEPTION"}}));
+    }
     setSyncingDrive(false);
   };
 
@@ -306,6 +513,7 @@ export default function Page(){
   // clasificados por proyecto usando PROJ_KEYWORDS.
   const syncCalendar = async () => {
     setSyncingCal(true);
+    setSyncStatus(p=>({...p,cal:{state:"loading",ts:null,msg:"Buscando reuniones en Gmail..."}}));
     try {
       const res = await fetch("/api/ai", {
         method:"POST",
@@ -332,8 +540,14 @@ export default function Page(){
         const manual = calendarEvents.filter(e => !e.id || e.id.startsWith("manual_"));
         const merged = [...manual, ...classified.filter(e => !manual.find(m=>m.title===e.title&&m.start===e.start))];
         saveCal(merged);
+        setSyncStatus(p=>({...p,cal:{state:"ok",ts:new Date().toISOString(),msg:`✓ ${merged.length} evento(s) · ${merged.filter(e=>e.start>=new Date().toISOString().slice(0,10)).length} próximos`}}));
+      } else {
+        setSyncStatus(p=>({...p,cal:{state:"warn",ts:new Date().toISOString(),msg:"No se encontraron reuniones próximas"}}));
       }
-    } catch(e){ console.error("Calendar sync error", e); }
+    } catch(e){
+      console.error("Calendar sync error", e);
+      setSyncStatus(p=>({...p,cal:{state:"error",ts:new Date().toISOString(),msg:`Error: ${e.message}`,code:"CAL_EXCEPTION"}}));
+    }
     setSyncingCal(false);
   };
 
@@ -389,6 +603,7 @@ export default function Page(){
 
   const scanGmail = async () => {
     setScanningGmail(true);
+    setSyncStatus(p=>({...p,gmail:{state:"loading",ts:null,msg:"Escaneando correos SECPLA..."}}));
     try {
       const since = new Date(Date.now() - 7*86400000).toISOString().slice(0,10).replace(/-/g,"/");
       const res = await fetch("/api/ai", {
@@ -431,7 +646,13 @@ export default function Page(){
       const now = new Date().toISOString();
       setLastGmailScan(now);
       S.set("sp_last_scan", now);
-    } catch(e){ console.error("Gmail scan error", e); }
+      const nNew = newFollows.length;
+      const nFound = Array.isArray(found)?found.length:0;
+      setSyncStatus(p=>({...p,gmail:{state:"ok",ts:now,msg:`✓ ${nFound} correos encontrados${nNew>0?` · ${nNew} nuevo(s) seguimiento(s)`:""}`}}));
+    } catch(e){
+      console.error("Gmail scan error", e);
+      setSyncStatus(p=>({...p,gmail:{state:"error",ts:new Date().toISOString(),msg:`Error: ${e.message}`,code:"GMAIL_EXCEPTION"}}));
+    }
     setScanningGmail(false);
   };
 
@@ -993,36 +1214,60 @@ export default function Page(){
           })}
         </div>
       )}
-      {/* ── Barra de sincronización integrada ── */}
-      <div style={{background:"#f8fafc",borderRadius:10,padding:"12px 16px",border:"1px solid #e2e8f0",marginBottom:14}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-          <div style={{fontSize:F(12),fontWeight:700,color:"#334155"}}>Sincronización de datos</div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            <button onClick={syncDrive} disabled={syncingDrive} style={{...btn(syncingDrive?"#94a3b8":"#059669"),fontSize:F(11),padding:"7px 12px",opacity:syncingDrive?0.7:1}}>
-              {syncingDrive?"⏳":"📂"} Drive{driveSync&&Object.keys(driveSync).length>0?" ✓":""}
-            </button>
-            <button onClick={syncCalendar} disabled={syncingCal} style={{...btn(syncingCal?"#94a3b8":"#0284c7"),fontSize:F(11),padding:"7px 12px",opacity:syncingCal?0.7:1}}>
-              {syncingCal?"⏳":"📅"} Calendario{calendarEvents.length>0?" ("+calendarEvents.length+")":""}
-            </button>
-            <button onClick={scanGmail} disabled={scanningGmail} style={{...btn(scanningGmail?"#94a3b8":"#dc2626"),fontSize:F(11),padding:"7px 12px",opacity:scanningGmail?0.7:1}}>
-              {scanningGmail?"⏳":"📬"} Gmail{pendingGf.filter(f=>f.autoDetected).length>0?" (+"+pendingGf.filter(f=>f.autoDetected).length+")":""}
-            </button>
-            <button onClick={trackConvenios} disabled={trackingConvenio} style={{...btn(trackingConvenio?"#94a3b8":"#7c3aed"),fontSize:F(11),padding:"7px 12px",opacity:trackingConvenio?0.7:1}}>
-              {trackingConvenio?"⏳":"📋"} Convenios{convenioData.filter(c=>c.modificacionesPendientes?.length>0).length>0?" (⚠️)":""}
-            </button>
-            <button onClick={()=>checkClockNow(true)} disabled={checkingClock} title="Consulta reloj solo en ventanas 09:30 y 18:20 L-V" style={{...btn(checkingClock?"#94a3b8":"#0f172a"),fontSize:F(11),padding:"7px 12px",opacity:checkingClock?0.7:1}}>
-              {checkingClock?"⏳":"🕐"} Reloj
-            </button>
+      {/* ── Barra de sincronización con feedback visual por botón ── */}
+      {(()=>{
+        const SC = {
+          idle:    {bg:"#1e293b",    color:"white",    icon:""},
+          loading: {bg:"#94a3b8",    color:"white",    icon:"⏳"},
+          ok:      {bg:"#059669",    color:"white",    icon:"✓"},
+          warn:    {bg:"#d97706",    color:"white",    icon:"⚠️"},
+          error:   {bg:"#dc2626",    color:"white",    icon:"✕"},
+        };
+        const SyncBtn = ({id,label,emoji,onClick,disabled,count,countColor})=>{
+          const s=syncStatus[id]||{state:"idle",ts:null,msg:""};
+          const c=SC[s.state]||SC.idle;
+          const isLoading=s.state==="loading"||disabled;
+          return(
+            <div style={{position:"relative",display:"inline-flex",flexDirection:"column",alignItems:"center",gap:2}}>
+              <button onClick={onClick} disabled={isLoading}
+                style={{...btn(isLoading?"#94a3b8":c.bg),fontSize:F(11),padding:"8px 12px",opacity:isLoading?0.7:1,display:"flex",alignItems:"center",gap:5,minWidth:72,justifyContent:"center"}}>
+                <span style={{fontSize:F(14)}}>{isLoading?"⏳":emoji}</span>
+                <span>{label}</span>
+                {count!=null&&count>0&&<span style={{fontSize:F(9),background:countColor||"rgba(255,255,255,0.25)",color:"white",borderRadius:10,padding:"1px 5px"}}>{count}</span>}
+                {!isLoading&&s.state!=="idle"&&<span style={{fontSize:F(10)}}>{c.icon}</span>}
+              </button>
+              {s.state!=="idle"&&s.msg&&(
+                <div style={{
+                  position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",
+                  background:s.state==="error"?"#991b1b":s.state==="warn"?"#78350f":"#0f172a",
+                  color:"white",fontSize:F(10),padding:"5px 9px",borderRadius:6,
+                  whiteSpace:"nowrap",zIndex:50,marginTop:4,maxWidth:260,
+                  boxShadow:"0 2px 8px rgba(0,0,0,0.25)",lineHeight:1.4
+                }}>
+                  {s.msg}
+                  {s.ts&&<div style={{opacity:0.6,marginTop:1}}>{new Date(s.ts).toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}</div>}
+                  {s.code&&<div style={{opacity:0.5,fontSize:F(9),marginTop:1}}>cod: {s.code}</div>}
+                </div>
+              )}
+            </div>
+          );
+        };
+        return(
+          <div style={{background:"#f8fafc",borderRadius:10,padding:"12px 16px",border:"1px solid #e2e8f0",marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}>
+              <div style={{fontSize:F(12),fontWeight:700,color:"#334155",paddingTop:8}}>Sincronización de datos</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <SyncBtn id="drive"    label="Drive"     emoji="📂" onClick={syncDrive}              disabled={syncingDrive}    count={Object.keys(driveSync).length||null} countColor="#15803d55"/>
+                <SyncBtn id="cal"      label="Calendario" emoji="📅" onClick={syncCalendar}           disabled={syncingCal}      count={calendarEvents.length||null}/>
+                <SyncBtn id="gmail"    label="Gmail"     emoji="📬" onClick={scanGmail}              disabled={scanningGmail}   count={pendingGf.filter(f=>f.autoDetected).length||null} countColor="#dc262655"/>
+                <SyncBtn id="convenio" label="Convenios" emoji="📋" onClick={trackConvenios}         disabled={trackingConvenio} count={convenioData.filter(c=>c.modificacionesPendientes?.length>0).length||null} countColor="#f59e0b55"/>
+                <SyncBtn id="reloj"    label="Reloj"     emoji="🕐" onClick={()=>syncClockFromGmail(false)} disabled={checkingClock} count={null}/>
+                <SyncBtn id="acuses"   label="Acuses"    emoji="👁" onClick={()=>syncReadReceipts(false)}  disabled={syncingReceipts} count={readReceipts.length||null}/>
+              </div>
+            </div>
           </div>
-        </div>
-        {(lastGmailScan||Object.keys(driveSync).length>0||calendarEvents.length>0)&&(
-          <div style={{marginTop:8,fontSize:F(10),color:"#94a3b8",display:"flex",gap:16,flexWrap:"wrap"}}>
-            {lastGmailScan&&<span>📬 Gmail: {new Date(lastGmailScan).toLocaleDateString("es-CL")} {new Date(lastGmailScan).toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}</span>}
-            {Object.keys(driveSync).length>0&&<span>📂 Drive: {Object.values(driveSync)[0]?.lastSync?.slice(0,10)||"—"}</span>}
-            {calendarEvents.length>0&&<span>📅 {calendarEvents.filter(e=>e.start>=new Date().toISOString().slice(0,10)).length} próximos · {calendarEvents.length} total</span>}
-          </div>
-        )}
-      </div>
+        );
+      })()}
 
       {/* Próximas reuniones resumen */}
       {calendarEvents.filter(e=>e.start>=new Date().toISOString().slice(0,10)).length > 0 && (
@@ -1244,8 +1489,8 @@ export default function Page(){
       {/* RELOJ CONTROL (sin cambios, se mantiene igual) */}
       {(()=>{
         const today=new Date();const todayStr=today.toISOString().slice(0,10);const nowMin=today.getHours()*60+today.getMinutes();
-        const months=[...new Set(ALL_CLOCK.map(r=>r.date.slice(0,7)))].sort();
-        const selMonth=clockMonth;const monthData=ALL_CLOCK.filter(r=>r.date.startsWith(selMonth));
+        const months=[...new Set(clockData.map(r=>r.date.slice(0,7)))].sort();
+        const selMonth=clockMonth;const monthData=clockData.filter(r=>r.date.startsWith(selMonth));
         const days=monthData.map(r=>{const j=jornada(r.date);const eMin=toMin(r.entrada);const sMin=toMin(r.salida);const isToday=r.date===todayStr;
           if(eMin===null&&sMin===null)return{...r,j,worked:null,extra:null,alert:"sin_registro"};
           if(sMin===null&&!isToday)return{...r,j,worked:null,extra:null,alert:"sin_salida_hist"};
@@ -1255,7 +1500,7 @@ export default function Page(){
         });
         const completed=days.filter(d=>d.extra!==null);const totalExtra=completed.reduce((a,d)=>a+(d.extra||0),0);
         const extraH=Math.floor(Math.abs(totalExtra)/60);const extraM=Math.abs(totalExtra)%60;
-        const yearAll=ALL_CLOCK.map(r=>{const j=jornada(r.date);const eMin=toMin(r.entrada);const sMin=toMin(r.salida);if(!eMin||!sMin)return null;return sMin-eMin-j;}).filter(x=>x!==null);
+        const yearAll=clockData.map(r=>{const j=jornada(r.date);const eMin=toMin(r.entrada);const sMin=toMin(r.salida);if(!eMin||!sMin)return null;return sMin-eMin-j;}).filter(x=>x!==null);
         const yearTotal=yearAll.reduce((a,v)=>a+v,0);
         const todayRec=days.find(d=>d.date===todayStr);
         const netColor=totalExtra>=0?"#059669":"#ef4444";const yearColor=yearTotal>=0?"#059669":"#ef4444";
@@ -1593,6 +1838,240 @@ export default function Page(){
     </div>
   );
 
+  // ── PANEL ACUSES DE LECTURA ──────────────────────────────────────
+  const AcusesPanel = () => {
+    const[filter,setFilter]=useState("all");
+    const[search,setSearch]=useState("");
+    const PROJ_N={"p1":"6ta Comisaría","p2":"Integración Cámaras","p3":"CCTV Centuras","p4":"UV32","p5":"Sala Monitoreo"};
+    const PROJ_C={"p1":"#dc2626","p2":"#185FA5","p3":"#059669","p4":"#d97706","p5":"#7c3aed"};
+    const ini=name=>name.split(" ").filter(w=>w.length>2).slice(0,2).map(w=>w[0]).toUpperCase().join("");
+    const fdt=iso=>{
+      if(!iso)return"—";
+      const d=new Date(iso.includes("T")?iso:iso.replace(" ","T"));
+      return d.toLocaleDateString("es-CL",{day:"2-digit",month:"short"})+" "+d.toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"});
+    };
+    const getStatus=e=>{
+      const total=(e.recipients||[]).length;
+      const read=(e.recipients||[]).filter(r=>r.readAt).length;
+      if(!total)return"pending";
+      return read===total?"all_read":read>0?"partial":"pending";
+    };
+    const [expanded,setExpanded]=useState(new Set());
+    const toggle=id=>setExpanded(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});
+
+    // Datos: usa readReceipts (dinámico desde Gmail) o datos iniciales
+    const INIT_RECEIPTS=[
+      {id:"e1",subject:"Proyecto Central de Monitoreo -1 / Factibilidad uso de Torre Telecom",context:"Solicitud de pronunciamiento para usar Torre Telecom como repetidor 5GHz.",sentDate:"2026-04-01",sentTime:"17:14",threadUrl:"https://mail.google.com/mail/u/0/#all/19d4aa05342a51ac",project:"p5",recipients:[{name:"Elizabeth Nuñez",email:"enunez@recoleta.cl",readAt:"2026-04-01 15:26"},{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-02 08:56"},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:"2026-04-15 12:49"},{name:"Francisco Moscoso",email:"fmoscoso@recoleta.cl",readAt:"2026-04-15 13:00"},{name:"Carolina Velásquez",email:"cvelasquez@recoleta.cl",readAt:"2026-04-15 15:25"}]},
+      {id:"e2",subject:"Re: Proyecto Central de Monitoreo -1 / Factibilidad uso de Torre Telecom (seguimiento 15 abr)",context:"Seguimiento enviado el 15 abril 12:09.",sentDate:"2026-04-15",sentTime:"12:09",threadUrl:"https://mail.google.com/mail/u/0/#all/19d4aa05342a51ac",project:"p5",recipients:[{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-15 12:15"},{name:"Elizabeth Nuñez",email:"enunez@recoleta.cl",readAt:"2026-04-15 12:30"},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:"2026-04-15 12:49"},{name:"Francisco Moscoso",email:"fmoscoso@recoleta.cl",readAt:"2026-04-15 13:00"},{name:"Carolina Velásquez",email:"cvelasquez@recoleta.cl",readAt:"2026-04-15 15:25"}]},
+      {id:"e3",subject:"Re: Envia convenio MTT sobre acceso a imágenes de puntos de cámaras",context:"Acción requerida sobre convenio MTT. Enviado 15 abr 11:41.",sentDate:"2026-04-15",sentTime:"11:41",threadUrl:"https://mail.google.com/mail/u/0/#all/19d68379ad0c8606",project:"p5",recipients:[{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-15 08:51"},{name:"Carolina Velásquez",email:"cvelasquez@recoleta.cl",readAt:"2026-04-15 08:54"},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:"2026-04-15 09:10"},{name:"Elizabeth Nuñez",email:"enunez@recoleta.cl",readAt:"2026-04-15 12:28"}]},
+      {id:"e4",subject:"Re: Modificación Plazo SNSM23-STP-0039 Municipalidad Recoleta",context:"Seguimiento ficha modificación de plazo enviada a SPD. 14 abr 15:51.",sentDate:"2026-04-14",sentTime:"15:51",threadUrl:"https://mail.google.com/mail/u/0/#all/19d1ab5d03fb53ce",project:"p2",recipients:[{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-15 09:12"},{name:"Osvaldo Muñoz (SPD)",email:"omunoz@minsegpublica.gob.cl",readAt:null},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:null},{name:"Genaro Cuadros",email:"gcuadros@recoleta.cl",readAt:null}]},
+      {id:"e5",subject:"Proyecto Sala de Monitoreo Edificio Consistorial - Recoleta",context:"Correo 1 abril 13:58. Confirmaciones jefatura y Elizabeth Nuñez.",sentDate:"2026-04-01",sentTime:"13:58",threadUrl:"https://mail.google.com/mail/u/0/#all/19d49b7da102875b",project:"p5",recipients:[{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-01 15:17"},{name:"Elizabeth Nuñez",email:"enunez@recoleta.cl",readAt:"2026-04-01 15:28"},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:"2026-04-02 13:59"}]},
+    ];
+    const data = readReceipts.length>0 ? readReceipts : INIT_RECEIPTS;
+    let list=data;
+    if(filter!=="all")list=list.filter(e=>getStatus(e)===filter);
+    if(search)list=list.filter(e=>e.subject.toLowerCase().includes(search.toLowerCase())||
+      (e.recipients||[]).some(r=>r.name.toLowerCase().includes(search.toLowerCase())));
+
+    const totalConf=data.reduce((a,e)=>a+(e.recipients||[]).filter(r=>r.readAt).length,0);
+    const totalRcpt=data.reduce((a,e)=>a+(e.recipients||[]).length,0);
+    const ss=syncStatus.acuses||{state:"idle",ts:null,msg:""};
+    const stateColor=ss.state==="ok"?"#059669":ss.state==="error"?"#dc2626":ss.state==="warn"?"#d97706":"#64748b";
+
+    return(
+      <div style={{padding:mob?"16px 16px 90px":"24px",...scroll}}>
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,flexWrap:"wrap",gap:10}}>
+          <div>
+            <div style={{fontSize:F(16),fontWeight:800,color:"#0f172a",marginBottom:3}}>👁 Acuses de Lectura</div>
+            <div style={{fontSize:F(12),color:"#64748b"}}>Seguimiento de confirmaciones en correos enviados con solicitud de lectura</div>
+          </div>
+          <button onClick={()=>syncReadReceipts(false)} disabled={syncingReceipts}
+            style={{...btn(syncingReceipts?"#94a3b8":"#7c3aed"),fontSize:F(12),padding:"9px 16px",opacity:syncingReceipts?0.7:1}}>
+            {syncingReceipts?"⏳ Sincronizando…":"🔄 Actualizar desde Gmail"}
+          </button>
+        </div>
+
+        {/* Estado de sincronización */}
+        <div style={{background:ss.state==="error"?"#fef2f2":ss.state==="ok"?"#f0fdf4":"#f8fafc",borderRadius:8,padding:"10px 14px",border:`1px solid ${stateColor}33`,marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:6}}>
+            <div style={{fontSize:F(12),color:stateColor,fontWeight:600}}>
+              {ss.state==="loading"?"⏳":ss.state==="ok"?"✓":ss.state==="error"?"✕":ss.state==="warn"?"⚠":"○"} {ss.msg||"Sin sincronizar — presiona Actualizar o espera el horario automático"}
+            </div>
+            {ss.ts&&<div style={{fontSize:F(10),color:"#94a3b8"}}>{new Date(ss.ts).toLocaleDateString("es-CL")} {new Date(ss.ts).toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}</div>}
+          </div>
+          {ss.code&&<div style={{fontSize:F(10),color:"#dc2626",marginTop:4,fontFamily:"monospace"}}>Código de falla: {ss.code}</div>}
+          <div style={{fontSize:F(10),color:"#94a3b8",marginTop:4}}>Actualización automática: 08:05 · 11:00 · 14:00 · 17:35 (L-V)</div>
+        </div>
+
+        {/* KPIs */}
+        <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:16}}>
+          {[
+            {l:"Correos con acuse",v:data.length,c:"#7c3aed",bg:"#f5f3ff"},
+            {l:"Confirmaciones",v:`${totalConf}/${totalRcpt}`,c:"#059669",bg:"#f0fdf4"},
+            {l:"Leídos todos",v:data.filter(e=>getStatus(e)==="all_read").length,c:"#3B6D11",bg:"#EAF3DE"},
+            {l:"Pendientes",v:data.filter(e=>getStatus(e)==="pending").length,c:"#A32D2D",bg:"#FCEBEB"},
+          ].map(({l,v,c,bg})=>(
+            <div key={l} style={{background:bg,borderRadius:8,padding:"12px 14px",border:`1px solid ${c}22`}}>
+              <div style={{fontSize:F(10),color:"#64748b",textTransform:"uppercase",letterSpacing:.04,marginBottom:4}}>{l}</div>
+              <div style={{fontSize:F(20),fontWeight:700,color:c}}>{v}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Filtros */}
+        <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+          {[["all","Todos"],["all_read","Leídos todos"],["partial","Parcial"],["pending","Pendientes"]].map(([f,l])=>(
+            <button key={f} onClick={()=>setFilter(f)} style={{fontSize:F(11),padding:"5px 12px",borderRadius:20,border:`0.5px solid ${filter===f?"#7c3aed":"var(--color-border-secondary)"}`,background:filter===f?"#7c3aed":"transparent",color:filter===f?"white":"var(--color-text-secondary)",cursor:"pointer"}}>
+              {l}
+            </button>
+          ))}
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar asunto o persona…" style={{flex:1,minWidth:140,fontSize:F(12),padding:"7px 12px",border:"0.5px solid var(--color-border-secondary)",borderRadius:8,background:"var(--color-background-primary)",color:"var(--color-text-primary)"}}/>
+        </div>
+
+        {/* Lista */}
+        {list.length===0&&<div style={{textAlign:"center",padding:"2rem",color:"#94a3b8",fontSize:F(13)}}>Sin resultados para el filtro actual.</div>}
+        {list.map(email=>{
+          const st=getStatus(email);
+          const total=(email.recipients||[]).length;
+          const readCount=(email.recipients||[]).filter(r=>r.readAt).length;
+          const pct=total?Math.round((readCount/total)*100):0;
+          const isOpen=expanded.has(email.id);
+          const stBadgeC=st==="all_read"?"#27500A":st==="partial"?"#633806":"#791F1F";
+          const stBadgeBg=st==="all_read"?"#EAF3DE":st==="partial"?"#FAEEDA":"#FCEBEB";
+          const stLabel=st==="all_read"?"Leído por todos":st==="partial"?`${readCount}/${total} confirmados`:"Sin confirmaciones";
+          const projColor=PROJ_C[email.project]||"#64748b";
+          const projName=PROJ_N[email.project]||"General";
+          return(
+            <div key={email.id} style={{background:"white",border:"0.5px solid var(--color-border-tertiary)",borderRadius:12,marginBottom:10,overflow:"hidden"}}>
+              <div onClick={()=>toggle(email.id)} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"14px 16px",cursor:"pointer"}}>
+                <span style={{fontSize:F(14),color:"var(--color-text-tertiary)",flexShrink:0,marginTop:2,transition:"transform .2s",display:"inline-block",transform:isOpen?"rotate(90deg)":"none"}}>▶</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:F(14),fontWeight:500,color:"var(--color-text-primary)",lineHeight:1.35,marginBottom:4}}>
+                    {email.subject.length>85?email.subject.slice(0,85)+"…":email.subject}
+                  </div>
+                  <div style={{fontSize:F(12),color:"var(--color-text-secondary)",marginBottom:6,lineHeight:1.5}}>{email.context}</div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                    <span style={{fontSize:F(11),padding:"3px 9px",borderRadius:8,background:stBadgeBg,color:stBadgeC,fontWeight:500}}>{stLabel}</span>
+                    <span style={{fontSize:F(11),padding:"3px 8px",borderRadius:8,background:projColor+"15",color:projColor,fontWeight:500}}>{projName}</span>
+                    <span style={{fontSize:F(11),color:"var(--color-text-tertiary)"}}>{email.sentDate} {email.sentTime}</span>
+                  </div>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{width:60,height:4,background:"var(--color-background-tertiary)",borderRadius:2,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${pct}%`,background:pct===100?"#639922":pct>0?"#EF9F27":"#E24B4A",borderRadius:2}}/>
+                    </div>
+                    <span style={{fontSize:F(11),color:"var(--color-text-secondary)",minWidth:28}}>{pct}%</span>
+                  </div>
+                  <span style={{fontSize:F(10),color:"var(--color-text-tertiary)"}}>{readCount}/{total}</span>
+                </div>
+              </div>
+              {isOpen&&(
+                <div>
+                  <div style={{borderTop:"0.5px solid var(--color-border-tertiary)",padding:"12px 16px",display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:8}}>
+                    <div style={{gridColumn:"1/-1",fontSize:F(10),color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:.05,marginBottom:4}}>Confirmaciones por destinatario</div>
+                    {(email.recipients||[]).map(r=>{
+                      const hasRead=!!r.readAt;
+                      return(
+                        <div key={r.email} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:"var(--color-background-secondary)",borderRadius:8}}>
+                          <div style={{width:32,height:32,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:F(11),fontWeight:500,flexShrink:0,background:hasRead?"#EAF3DE":"#FCEBEB",color:hasRead?"#27500A":"#791F1F"}}>{ini(r.name)}</div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:F(12),fontWeight:500,color:"var(--color-text-primary)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.name}</div>
+                            <div style={{fontSize:F(10),color:"var(--color-text-secondary)",marginTop:1}}>{hasRead?`Leído ${fdt(r.readAt)}`:"Sin confirmación"}</div>
+                          </div>
+                          <span style={{fontSize:F(10),padding:"2px 7px",borderRadius:4,background:hasRead?"#EAF3DE":"var(--color-background-tertiary)",color:hasRead?"#3B6D11":"var(--color-text-secondary)",flexShrink:0}}>{hasRead?"Leído":"Pendiente"}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{borderTop:"0.5px solid var(--color-border-tertiary)",padding:"10px 16px",display:"flex",gap:8,alignItems:"center"}}>
+                    <a href={email.threadUrl} target="_blank" rel="noreferrer" style={{fontSize:F(12),color:"#185FA5",fontWeight:500}}>Abrir hilo en Gmail →</a>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Monitor de Scheduler */}
+        <div style={{marginTop:24}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{fontSize:F(12),fontWeight:500,color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:.05}}>Monitor de Sincronización Automática</div>
+            <button onClick={()=>setShowSchedLog(v=>!v)} style={{fontSize:F(11),padding:"4px 10px",border:"0.5px solid var(--color-border-secondary)",borderRadius:6,background:"transparent",cursor:"pointer",color:"var(--color-text-secondary)"}}>
+              {showSchedLog?"Ocultar":"Ver registro"}
+            </button>
+          </div>
+
+          {/* Próximas ejecuciones */}
+          <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
+            <div style={{background:"var(--color-background-secondary)",borderRadius:8,padding:"12px 14px",border:"0.5px solid var(--color-border-tertiary)"}}>
+              <div style={{fontSize:F(10),color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:.04,marginBottom:6}}>🕐 Reloj Control — 3 veces/día (L-V)</div>
+              <div style={{fontSize:F(12),color:"var(--color-text-primary)"}}>08:00 · 13:30 · 17:30</div>
+              <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
+                {(()=>{
+                  const s=syncStatus.reloj||{};
+                  const c=s.state==="ok"?"#059669":s.state==="error"?"#dc2626":s.state==="warn"?"#d97706":"#64748b";
+                  return(
+                    <>
+                      <span style={{fontSize:F(10),padding:"2px 7px",borderRadius:4,background:c+"15",color:c}}>{s.state==="ok"?"✓ OK":s.state==="error"?"✕ Error":s.state==="warn"?"⚠ Advertencia":"○ En espera"}</span>
+                      {s.ts&&<span style={{fontSize:F(10),color:"var(--color-text-tertiary)"}}>Último: {new Date(s.ts).toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}</span>}
+                      {s.code&&<span style={{fontSize:F(10),color:"#dc2626",fontFamily:"monospace"}}>cod: {s.code}</span>}
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+            <div style={{background:"var(--color-background-secondary)",borderRadius:8,padding:"12px 14px",border:"0.5px solid var(--color-border-tertiary)"}}>
+              <div style={{fontSize:F(10),color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:.04,marginBottom:6}}>👁 Acuses de Lectura — 4 veces/día (L-V)</div>
+              <div style={{fontSize:F(12),color:"var(--color-text-primary)"}}>08:05 · 11:00 · 14:00 · 17:35</div>
+              <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
+                {(()=>{
+                  const s=syncStatus.acuses||{};
+                  const c=s.state==="ok"?"#059669":s.state==="error"?"#dc2626":s.state==="warn"?"#d97706":"#64748b";
+                  return(
+                    <>
+                      <span style={{fontSize:F(10),padding:"2px 7px",borderRadius:4,background:c+"15",color:c}}>{s.state==="ok"?"✓ OK":s.state==="error"?"✕ Error":s.state==="warn"?"⚠ Advertencia":"○ En espera"}</span>
+                      {s.ts&&<span style={{fontSize:F(10),color:"var(--color-text-tertiary)"}}>Último: {new Date(s.ts).toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}</span>}
+                      {s.code&&<span style={{fontSize:F(10),color:"#dc2626",fontFamily:"monospace"}}>cod: {s.code}</span>}
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+
+          {/* Log de ejecuciones */}
+          {showSchedLog&&(
+            <div style={{background:"white",border:"0.5px solid var(--color-border-tertiary)",borderRadius:8,overflow:"hidden"}}>
+              <div style={{padding:"8px 14px",background:"var(--color-background-secondary)",borderBottom:"0.5px solid var(--color-border-tertiary)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:F(11),fontWeight:500,color:"var(--color-text-secondary)"}}>Registro de ejecuciones ({schedLog.length})</div>
+                <button onClick={()=>{saveSchedLog([]);}} style={{fontSize:F(10),color:"#94a3b8",background:"none",border:"none",cursor:"pointer"}}>Limpiar</button>
+              </div>
+              {schedLog.length===0&&<div style={{padding:"1rem",fontSize:F(12),color:"var(--color-text-tertiary)",textAlign:"center"}}>Sin ejecuciones registradas aún.</div>}
+              {schedLog.slice(0,20).map(entry=>{
+                const c=entry.result==="ok"?"#059669":entry.result==="error"?"#dc2626":"#d97706";
+                return(
+                  <div key={entry.id} style={{padding:"10px 14px",borderBottom:"0.5px solid var(--color-border-tertiary)",display:"flex",gap:10,alignItems:"flex-start"}}>
+                    <span style={{fontSize:F(13),flexShrink:0,marginTop:1}}>{entry.result==="ok"?"✓":entry.result==="error"?"✕":"⚠"}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:2,flexWrap:"wrap"}}>
+                        <span style={{fontSize:F(11),fontWeight:500,color:c,textTransform:"uppercase"}}>{entry.type}</span>
+                        <span style={{fontSize:F(10),color:"var(--color-text-tertiary)"}}>{new Date(entry.ts).toLocaleDateString("es-CL")} {new Date(entry.ts).toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}</span>
+                        {entry.code&&<span style={{fontSize:F(10),color:"#dc2626",fontFamily:"monospace",background:"#fef2f2",padding:"1px 5px",borderRadius:3}}>{entry.code}</span>}
+                      </div>
+                      <div style={{fontSize:F(12),color:"var(--color-text-secondary)",lineHeight:1.4}}>{entry.msg}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // ── CHAT ──────────────────────────────────────────
   const chatPanel=(
     <div style={{display:"flex",flexDirection:"column",height:mob?"calc(100vh - 58px - 58px)":"100%",background:"white"}}>
@@ -1675,6 +2154,10 @@ export default function Page(){
           <span>✅ Solicitudes Respondidas</span>
           {answeredRequests.length>0&&<span style={{fontSize:F(10),background:"#22c55e33",color:"#22c55e",padding:"1px 7px",borderRadius:10,fontWeight:700}}>{answeredRequests.length}</span>}
         </button>
+        <button onClick={()=>{setSel(null);setView("dash");setMainTab("acuses");}} style={{width:"100%",padding:"11px 14px",borderRadius:7,background:mainTab==="acuses"?"#1e3a5f":"transparent",color:mainTab==="acuses"?"#93c5fd":"#64748b",border:"none",cursor:"pointer",textAlign:"left",fontSize:F(13),fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+          <span>👁 Acuses de Lectura</span>
+          {readReceipts.length>0&&<span style={{fontSize:F(10),background:"#7c3aed33",color:"#a78bfa",padding:"1px 7px",borderRadius:10,fontWeight:700}}>{readReceipts.length}</span>}
+        </button>
         {/* Nueva entrada: Calendario */}
         <button onClick={()=>{setSel(null);setView("dash");setMainTab("calendar");}} style={{width:"100%",padding:"11px 14px",borderRadius:7,background:mainTab==="calendar"?"#1e3a5f":"transparent",color:mainTab==="calendar"?"#93c5fd":"#64748b",border:"none",cursor:"pointer",textAlign:"left",fontSize:F(13),fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
           <span>📅 Calendario</span>
@@ -1744,6 +2227,7 @@ export default function Page(){
               {/* Render según mainTab */}
               {view!=="project"&&view!=="chat"&&mainTab==="dash"&&<div style={{flex:1,...scroll}}>{dashContent}</div>}
               {view!=="project"&&view!=="chat"&&mainTab==="answered"&&<div style={{flex:1,...scroll}}><AnsweredPanel/></div>}
+              {view!=="project"&&view!=="chat"&&mainTab==="acuses"&&<div style={{flex:1,...scroll}}><AcusesPanel/></div>}
               {view!=="project"&&view!=="chat"&&mainTab==="calendar"&&<div style={{flex:1,...scroll}}><CalendarPanel/></div>}
               {view==="project"&&proj&&projDetail}
             </div>
