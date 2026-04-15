@@ -186,6 +186,272 @@ function st(){
   return{get,set};
 }
 
+
+// ════════════════════════════════════════════════════════════════════
+// COMPONENTES EXTERNOS — definidos fuera de Page() para cumplir
+// las reglas de hooks de React (no hooks dentro de funciones anidadas)
+// ════════════════════════════════════════════════════════════════════
+
+// ── AddEventForm: formulario de evento manual de calendario ────────
+function AddEventForm({onAdd, projects, F, btn, lbl, inp, mob}){
+  const[ev,setEv]=React.useState({title:"",start:"",time:"",description:"",projectId:"",url:""});
+  return(
+    <div style={{background:"var(--color-background-primary)",borderRadius:10,padding:16,border:"1px solid #bfdbfe",marginTop:8}}>
+      <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
+        <div><label style={lbl}>Título *</label><input value={ev.title} onChange={e=>setEv(x=>({...x,title:e.target.value}))} style={inp} placeholder="Nombre del evento"/></div>
+        <div><label style={lbl}>Fecha *</label><input type="date" value={ev.start} onChange={e=>setEv(x=>({...x,start:e.target.value}))} style={inp}/></div>
+        <div><label style={lbl}>Hora</label><input value={ev.time} onChange={e=>setEv(x=>({...x,time:e.target.value}))} style={inp} placeholder="Ej: 13:00"/></div>
+        <div><label style={lbl}>Proyecto</label>
+          <select value={ev.projectId} onChange={e=>setEv(x=>({...x,projectId:e.target.value}))} style={inp}>
+            <option value="">Sin asociar</option>
+            {projects.map(p=><option key={p.id} value={p.id}>{p.name.slice(0,50)}</option>)}
+          </select>
+        </div>
+      </div>
+      <div style={{marginBottom:10}}><label style={lbl}>Descripción</label><textarea value={ev.description} onChange={e=>setEv(x=>({...x,description:e.target.value}))} rows={2} style={{...inp,resize:"vertical"}}/></div>
+      <div style={{marginBottom:12}}><label style={lbl}>URL evento (opcional)</label><input value={ev.url} onChange={e=>setEv(x=>({...x,url:e.target.value}))} style={inp} placeholder="https://"/></div>
+      <button onClick={()=>{if(!ev.title||!ev.start)return;onAdd(ev);setEv({title:"",start:"",time:"",description:"",projectId:"",url:""});}} style={btn("#0284c7")}>Agregar evento</button>
+    </div>
+  );
+}
+
+// ── GmailFollowPanel: panel unificado Gmail + Acuses de Lectura ─────
+// Reemplaza el antiguo GmailPanel + AcusesPanel por un único panel
+// con tabs: "Seguimientos" y "Acuses de Lectura"
+function GmailFollowPanel({
+  gf, projects, readReceipts, resolveFollow, syncStatus, syncingReceipts,
+  syncReadReceipts, schedLog, F, btn, UC, UL, fDate, fDateTime
+}){
+  const[tab,setTab]=React.useState("seguimientos");
+  const[expanded,setExpanded]=React.useState(new Set());
+  const[filter,setFilter]=React.useState("all");
+  const[search,setSearch]=React.useState("");
+  const toggleExpand=id=>setExpanded(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});
+
+  const pendingGf=gf.filter(f=>f.status==="pendiente");
+  const criticalGf=pendingGf.filter(f=>f.urgency==="crítica");
+  const sorted=[...pendingGf].sort((a,b)=>({crítica:0,alta:1,media:2}[a.urgency])-({crítica:0,alta:1,media:2}[b.urgency]));
+
+  // Datos de acuses: usa readReceipts (dinámico) o set inicial de referencia
+  const INIT_RECEIPTS=[
+    {id:"e1",subject:"Proyecto Central de Monitoreo -1 / Factibilidad uso de Torre Telecom",context:"Solicitud uso Torre Telecom como repetidor 5GHz.",sentDate:"2026-04-01",project:"p5",threadUrl:"https://mail.google.com/mail/u/0/#all/19d4aa05342a51ac",recipients:[{name:"Elizabeth Nuñez",email:"enunez@recoleta.cl",readAt:"2026-04-01 15:26"},{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-02 08:56"},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:"2026-04-15 12:49"},{name:"Francisco Moscoso",email:"fmoscoso@recoleta.cl",readAt:"2026-04-15 13:00"},{name:"Carolina Velásquez",email:"cvelasquez@recoleta.cl",readAt:"2026-04-15 15:25"}]},
+    {id:"e2",subject:"Re: Envia convenio MTT sobre acceso a imágenes de puntos de cámaras",context:"Acción sobre convenio MTT. Lectura confirmada equipo SECPLA.",sentDate:"2026-04-15",project:"p5",threadUrl:"https://mail.google.com/mail/u/0/#all/19d68379ad0c8606",recipients:[{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-15 08:51"},{name:"Carolina Velásquez",email:"cvelasquez@recoleta.cl",readAt:"2026-04-15 08:54"},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:"2026-04-15 09:10"},{name:"Elizabeth Nuñez",email:"enunez@recoleta.cl",readAt:"2026-04-15 12:28"}]},
+    {id:"e3",subject:"Re: Modificación Plazo SNSM23-STP-0039 Municipalidad Recoleta",context:"Seguimiento ficha modificación de plazo enviada a SPD.",sentDate:"2026-04-14",project:"p2",threadUrl:"https://mail.google.com/mail/u/0/#all/19d1ab5d03fb53ce",recipients:[{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-15 09:12"},{name:"Osvaldo Muñoz (SPD)",email:"omunoz@minsegpublica.gob.cl",readAt:null},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:null},{name:"Genaro Cuadros",email:"gcuadros@recoleta.cl",readAt:null}]},
+    {id:"e4",subject:"Proyecto Sala de Monitoreo Edificio Consistorial - Recoleta",context:"Correo 1 abril. Confirmaciones de lectura por jefatura.",sentDate:"2026-04-01",project:"p5",threadUrl:"https://mail.google.com/mail/u/0/#all/19d49b7da102875b",recipients:[{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-01 15:17"},{name:"Elizabeth Nuñez",email:"enunez@recoleta.cl",readAt:"2026-04-01 15:28"},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:"2026-04-02 13:59"}]},
+  ];
+  const receiptsData = readReceipts.length>0 ? readReceipts : INIT_RECEIPTS;
+
+  const ini=name=>name.split(" ").filter(w=>w.length>2).slice(0,2).map(w=>w[0]).toUpperCase().join("");
+  const fdt=iso=>{
+    if(!iso)return"—";
+    try{const d=new Date(iso.includes("T")?iso:iso.replace(" ","T"));
+    return d.toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})+" "+d.toLocaleDateString("es-CL",{day:"2-digit",month:"short"});}
+    catch{return"—";}
+  };
+  const getStatus=e=>{
+    const t=(e.recipients||[]).length, r=(e.recipients||[]).filter(x=>x.readAt).length;
+    return r===0?"pending":r===t?"all_read":"partial";
+  };
+
+  // Encontrar seguimiento relacionado con un acuse
+  const relatedFollowup = (receipt) =>
+    gf.find(f => f.threadUrl?.includes(receipt.threadUrl?.split("/").pop()||"NONE") ||
+      receipt.subject?.toLowerCase().includes((f.subject||"").toLowerCase().slice(0,20)));
+
+  const ss=syncStatus.acuses||{state:"idle",ts:null,msg:""};
+  const stC=ss.state==="ok"?"#059669":ss.state==="error"?"#dc2626":ss.state==="warn"?"#d97706":"#94a3b8";
+
+  let filteredReceipts=receiptsData;
+  if(filter!=="all") filteredReceipts=filteredReceipts.filter(e=>getStatus(e)===filter);
+  if(search) filteredReceipts=filteredReceipts.filter(e=>
+    e.subject?.toLowerCase().includes(search.toLowerCase())||
+    (e.recipients||[]).some(r=>r.name?.toLowerCase().includes(search.toLowerCase())));
+
+  return(
+    <div style={{marginTop:24}}>
+      {/* Header unificado */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",gap:4}}>
+          <button onClick={()=>setTab("seguimientos")} style={{fontSize:F(12),fontWeight:tab==="seguimientos"?700:500,padding:"7px 14px",borderRadius:8,border:"none",background:tab==="seguimientos"?"#dc2626":"#f1f5f9",color:tab==="seguimientos"?"white":"#64748b",cursor:"pointer"}}>
+            📬 Seguimientos {pendingGf.length>0&&<span style={{marginLeft:4,background:tab==="seguimientos"?"rgba(255,255,255,0.3)":"#fecaca",color:tab==="seguimientos"?"white":"#dc2626",borderRadius:10,padding:"1px 6px",fontSize:F(10)}}>{pendingGf.length}</span>}
+          </button>
+          <button onClick={()=>setTab("acuses")} style={{fontSize:F(12),fontWeight:tab==="acuses"?700:500,padding:"7px 14px",borderRadius:8,border:"none",background:tab==="acuses"?"#7c3aed":"#f1f5f9",color:tab==="acuses"?"white":"#64748b",cursor:"pointer"}}>
+            👁 Acuses {receiptsData.length>0&&<span style={{marginLeft:4,background:tab==="acuses"?"rgba(255,255,255,0.3)":"#ede9fe",color:tab==="acuses"?"white":"#7c3aed",borderRadius:10,padding:"1px 6px",fontSize:F(10)}}>{receiptsData.length}</span>}
+          </button>
+        </div>
+        {tab==="acuses"&&(
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <div style={{fontSize:F(10),color:stC}}>{ss.state==="ok"?"✓":ss.state==="error"?"✕ Error":"○"} {ss.ts?new Date(ss.ts).toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"}):""}</div>
+            <button onClick={()=>syncReadReceipts(false)} disabled={syncingReceipts} style={{...btn(syncingReceipts?"#94a3b8":"#7c3aed"),fontSize:F(11),padding:"6px 12px",opacity:syncingReceipts?0.7:1}}>
+              {syncingReceipts?"⏳":"🔄"} Actualizar
+            </button>
+          </div>
+        )}
+        {tab==="seguimientos"&&criticalGf.length>0&&(
+          <span style={{fontSize:F(11),color:"#94a3b8"}}>Solo lectura</span>
+        )}
+      </div>
+
+      {/* ── TAB SEGUIMIENTOS ── */}
+      {tab==="seguimientos"&&(
+        <>
+          {sorted.length===0&&<div style={{fontSize:F(13),color:"#94a3b8",padding:"1rem 0"}}>Sin seguimientos pendientes.</div>}
+          {sorted.map(f=>{
+            const fp=projects.find(p=>p.id===f.projectId);
+            // ¿Tiene acuse de lectura relacionado?
+            const relReceipt=receiptsData.find(r=>
+              r.threadUrl?.includes(f.threadUrl?.split("/").pop()||"NONE")||
+              f.subject?.toLowerCase().includes((r.subject||"").toLowerCase().slice(0,20)));
+            const relReaders=relReceipt?(relReceipt.recipients||[]).filter(x=>x.readAt):[];
+            const relPending=relReceipt?(relReceipt.recipients||[]).filter(x=>!x.readAt):[];
+            return(
+              <div key={f.id} style={{background:"white",borderRadius:10,padding:16,border:`1px solid ${UC[f.urgency]}33`,marginBottom:12,borderLeft:`4px solid ${UC[f.urgency]}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:F(14),color:"#0f172a",marginBottom:4}}>{UL[f.urgency]} {f.subject}</div>
+                    <div style={{fontSize:F(12),color:"#64748b",marginBottom:4}}>→ {f.to}</div>
+                    {fp&&<span style={{fontSize:F(11),padding:"3px 9px",borderRadius:6,background:"#f1f5f9",color:"#475569"}}>{fp.name}</span>}
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0}}>
+                    <div style={{fontSize:F(13),fontWeight:700,color:UC[f.urgency]}}>{f.daysPending}d sin resp.</div>
+                    <div style={{fontSize:F(11),color:"#94a3b8",marginTop:2}}>{fDate(f.sentDate)}</div>
+                  </div>
+                </div>
+                <p style={{fontSize:F(12),color:"#475569",lineHeight:1.6,margin:"0 0 10px",padding:"8px 10px",background:"#f8fafc",borderRadius:5}}>{f.context}</p>
+
+                {/* Acuses relacionados inline */}
+                {relReceipt&&(
+                  <div style={{marginBottom:10,padding:"8px 10px",background:"#f5f3ff",borderRadius:7,border:"1px solid #ede9fe"}}>
+                    <div style={{fontSize:F(10),fontWeight:700,color:"#7c3aed",textTransform:"uppercase",letterSpacing:.05,marginBottom:6}}>👁 Acuses de lectura</div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {relReaders.map(r=>(
+                        <div key={r.email} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 8px",background:"#EAF3DE",borderRadius:20}}>
+                          <div style={{width:18,height:18,borderRadius:"50%",background:"#639922",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"9px",color:"white",fontWeight:700}}>
+                            {r.name.split(" ").filter(w=>w.length>2).slice(0,1).map(w=>w[0]).join("")}
+                          </div>
+                          <span style={{fontSize:F(10),color:"#27500A",fontWeight:500}}>{r.name.split(" ")[0]}</span>
+                          <span style={{fontSize:"9px",color:"#3B6D11"}}>{r.readAt?.split(" ")[1]||""}</span>
+                        </div>
+                      ))}
+                      {relPending.map(r=>(
+                        <div key={r.email} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 8px",background:"#FCEBEB",borderRadius:20}}>
+                          <div style={{width:18,height:18,borderRadius:"50%",background:"#ef4444",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"9px",color:"white",fontWeight:700}}>
+                            {r.name.split(" ").filter(w=>w.length>2).slice(0,1).map(w=>w[0]).join("")}
+                          </div>
+                          <span style={{fontSize:F(10),color:"#791F1F",fontWeight:500}}>{r.name.split(" ")[0]}</span>
+                          <span style={{fontSize:"9px",color:"#A32D2D"}}>pendiente</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <a href={f.threadUrl} target="_blank" rel="noreferrer" style={{fontSize:F(12),color:"#1d4ed8",padding:"7px 14px",borderRadius:6,background:"#eff6ff",textDecoration:"none",fontWeight:700}}>✉️ Abrir en Gmail</a>
+                  <button onClick={()=>resolveFollow(f.id)} style={{...btn("#dcfce7","#166534"),fontSize:F(12),padding:"7px 14px"}}>✅ Resuelto</button>
+                  <button onClick={()=>resolveFollow(f.id)} style={{...btn("#f1f5f9","#64748b"),fontSize:F(12),padding:"7px 14px"}}>✕ Descartar</button>
+                </div>
+              </div>
+            );
+          })}
+          {gf.filter(f=>f.status==="resuelto").length>0&&(
+            <div style={{fontSize:F(11),color:"#94a3b8",textAlign:"center",marginTop:6}}>
+              {gf.filter(f=>f.status==="resuelto").length} resuelto(s)
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── TAB ACUSES ── */}
+      {tab==="acuses"&&(
+        <>
+          {/* Estado sync */}
+          {ss.state!=="idle"&&(
+            <div style={{background:ss.state==="error"?"#fef2f2":ss.state==="ok"?"#f0fdf4":"#f8fafc",borderRadius:8,padding:"8px 12px",border:`1px solid ${stC}33`,marginBottom:12,fontSize:F(11)}}>
+              <span style={{color:stC,fontWeight:600}}>{ss.state==="ok"?"✓":ss.state==="error"?"✕":"⚠"} {ss.msg}</span>
+              {ss.code&&<span style={{color:"#dc2626",fontFamily:"monospace",marginLeft:8}}>cod: {ss.code}</span>}
+              <span style={{color:"#94a3b8",marginLeft:8,fontSize:F(10)}}>Auto: 08:05 · 11:00 · 14:00 · 17:35</span>
+            </div>
+          )}
+
+          {/* Filtros */}
+          <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+            {[["all","Todos"],["all_read","Todos leyeron"],["partial","Parcial"],["pending","Sin acuse"]].map(([fv,fl])=>(
+              <button key={fv} onClick={()=>setFilter(fv)} style={{fontSize:F(11),padding:"4px 10px",borderRadius:20,border:`0.5px solid ${filter===fv?"#7c3aed":"#e2e8f0"}`,background:filter===fv?"#7c3aed":"transparent",color:filter===fv?"white":"#64748b",cursor:"pointer"}}>{fl}</button>
+            ))}
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar…" style={{flex:1,minWidth:120,fontSize:F(12),padding:"5px 10px",border:"0.5px solid #e2e8f0",borderRadius:8,background:"white",color:"#0f172a"}}/>
+          </div>
+
+          {filteredReceipts.length===0&&<div style={{fontSize:F(13),color:"#94a3b8",padding:"1rem 0",textAlign:"center"}}>Sin resultados.</div>}
+          {filteredReceipts.map(email=>{
+            const st=getStatus(email);
+            const total=(email.recipients||[]).length;
+            const readCount=(email.recipients||[]).filter(r=>r.readAt).length;
+            const pct=total?Math.round((readCount/total)*100):0;
+            const isOpen=expanded.has(email.id);
+            const stBg=st==="all_read"?"#EAF3DE":st==="partial"?"#FAEEDA":"#FCEBEB";
+            const stC2=st==="all_read"?"#27500A":st==="partial"?"#633806":"#791F1F";
+            const stL=st==="all_read"?"Leído por todos":`${readCount}/${total} confirmados`;
+            // ¿Relacionado con un seguimiento GF?
+            const relFollow=gf.find(f=>f.threadUrl?.includes(email.threadUrl?.split("/").pop()||"X"));
+            return(
+              <div key={email.id} style={{background:"white",border:"0.5px solid #e2e8f0",borderRadius:10,marginBottom:10,overflow:"hidden"}}>
+                <div onClick={()=>toggleExpand(email.id)} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"12px 14px",cursor:"pointer"}}>
+                  <span style={{fontSize:F(12),color:"#94a3b8",flexShrink:0,marginTop:2,display:"inline-block",transform:isOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>▶</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:F(13),fontWeight:500,color:"#0f172a",lineHeight:1.3,marginBottom:3}}>
+                      {email.subject.length>75?email.subject.slice(0,75)+"…":email.subject}
+                    </div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:4}}>
+                      <span style={{fontSize:F(10),padding:"2px 7px",borderRadius:6,background:stBg,color:stC2,fontWeight:500}}>{stL}</span>
+                      {relFollow&&<span style={{fontSize:F(10),padding:"2px 7px",borderRadius:6,background:"#fef3c7",color:"#92400e"}}>⚡ En seguimiento</span>}
+                      <span style={{fontSize:F(10),color:"#94a3b8"}}>{email.sentDate}</span>
+                    </div>
+                    {/* Chips compactos de quién leyó / quién falta */}
+                    <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                      {(email.recipients||[]).map(r=>(
+                        <div key={r.email} title={r.readAt?`${r.name} — leído ${r.readAt}`:`${r.name} — pendiente`} style={{width:22,height:22,borderRadius:"50%",background:r.readAt?"#EAF3DE":"#FCEBEB",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"9px",fontWeight:700,color:r.readAt?"#27500A":"#791F1F",cursor:"default"}}>
+                          {ini(r.name)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                    <div style={{width:48,height:3,background:"#f1f5f9",borderRadius:2,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${pct}%`,background:pct===100?"#639922":pct>0?"#EF9F27":"#ef4444",borderRadius:2}}/>
+                    </div>
+                    <span style={{fontSize:F(10),color:"#94a3b8"}}>{pct}%</span>
+                  </div>
+                </div>
+                {isOpen&&(
+                  <div>
+                    <div style={{borderTop:"0.5px solid #f1f5f9",padding:"10px 14px",display:"flex",flexDirection:"column",gap:6}}>
+                      <div style={{fontSize:F(10),color:"#94a3b8",textTransform:"uppercase",letterSpacing:.05,marginBottom:2}}>Confirmaciones de lectura</div>
+                      {(email.recipients||[]).map(r=>(
+                        <div key={r.email} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:"#f8fafc",borderRadius:7}}>
+                          <div style={{width:28,height:28,borderRadius:"50%",background:r.readAt?"#EAF3DE":"#FCEBEB",display:"flex",alignItems:"center",justifyContent:"center",fontSize:F(10),fontWeight:500,color:r.readAt?"#27500A":"#791F1F",flexShrink:0}}>{ini(r.name)}</div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:F(12),fontWeight:500,color:"#0f172a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.name}</div>
+                            <div style={{fontSize:F(10),color:r.readAt?"#059669":"#94a3b8"}}>{r.readAt?"Leído "+fdt(r.readAt):"Sin confirmación"}</div>
+                          </div>
+                          <span style={{fontSize:F(10),padding:"2px 6px",borderRadius:4,background:r.readAt?"#EAF3DE":"#f1f5f9",color:r.readAt?"#3B6D11":"#94a3b8",flexShrink:0}}>{r.readAt?"✓":"—"}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{borderTop:"0.5px solid #f1f5f9",padding:"8px 14px"}}>
+                      <a href={email.threadUrl} target="_blank" rel="noreferrer" style={{fontSize:F(12),color:"#1d4ed8",fontWeight:500}}>Abrir hilo en Gmail →</a>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Page(){
   const w=useW();const mob=w<768;const S=st();
   const[projects,setProjects]=useState(()=>S.get("sp_proj")||INIT_P);
@@ -1057,34 +1323,13 @@ export default function Page(){
         {/* ── Agregar evento manual ── */}
         <details style={{marginTop:20}}>
           <summary style={{fontSize:F(12),color:"#1d4ed8",cursor:"pointer",padding:"8px 0",fontWeight:700}}>+ Agregar evento manualmente</summary>
-          <AddEventForm onAdd={(ev)=>saveCal([...calendarEvents,{...ev,id:uid()}])} projects={projects} />
+          <AddEventForm onAdd={(ev)=>saveCal([...calendarEvents,{...ev,id:uid()}])} projects={projects} F={F} btn={btn} lbl={lbl} inp={inp} mob={mob}/>
         </details>
       </div>
     );
   };
 
-  // ── FORMULARIO AGREGAR EVENTO MANUAL ─────────────
-  const AddEventForm = ({onAdd, projects}) => {
-    const[ev,setEv]=useState({title:"",start:"",time:"",description:"",projectId:"",url:""});
-    return(
-      <div style={{background:"white",borderRadius:10,padding:16,border:"1px solid #bfdbfe",marginTop:8}}>
-        <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
-          <div><label style={lbl}>Título *</label><input value={ev.title} onChange={e=>setEv(x=>({...x,title:e.target.value}))} style={inp} placeholder="Nombre del evento"/></div>
-          <div><label style={lbl}>Fecha *</label><input type="date" value={ev.start} onChange={e=>setEv(x=>({...x,start:e.target.value}))} style={inp}/></div>
-          <div><label style={lbl}>Hora</label><input value={ev.time} onChange={e=>setEv(x=>({...x,time:e.target.value}))} style={inp} placeholder="Ej: 13:00"/></div>
-          <div><label style={lbl}>Proyecto</label>
-            <select value={ev.projectId} onChange={e=>setEv(x=>({...x,projectId:e.target.value}))} style={inp}>
-              <option value="">Sin asociar</option>
-              {projects.map(p=><option key={p.id} value={p.id}>{p.name.slice(0,50)}…</option>)}
-            </select>
-          </div>
-        </div>
-        <div style={{marginBottom:10}}><label style={lbl}>Descripción</label><textarea value={ev.description} onChange={e=>setEv(x=>({...x,description:e.target.value}))} rows={2} style={{...inp,resize:"vertical"}}/></div>
-        <div style={{marginBottom:12}}><label style={lbl}>URL evento (opcional)</label><input value={ev.url} onChange={e=>setEv(x=>({...x,url:e.target.value}))} style={inp} placeholder="https://"/></div>
-        <button onClick={()=>{if(!ev.title||!ev.start)return;onAdd(ev);setEv({title:"",start:"",time:"",description:"",projectId:"",url:""}); }} style={btn("#0284c7")}>Agregar evento</button>
-      </div>
-    );
-  };
+
 
   // ── HEADER ────────────────────────────────────────
   const header=(
@@ -1130,49 +1375,10 @@ export default function Page(){
     </div>
   );
 
-  // ── GMAIL PANEL ───────────────────────────────────
-  const GmailPanel=()=>{
-    if(!pendingGf.length)return null;
-    const sorted=[...pendingGf].sort((a,b)=>({crítica:0,alta:1,media:2}[a.urgency])-({crítica:0,alta:1,media:2}[b.urgency]));
-    return(
-      <div style={{marginTop:24}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-          <div style={{fontSize:F(13),fontWeight:700,color:"#dc2626",textTransform:"uppercase",letterSpacing:1}}>📬 Seguimientos Gmail — {pendingGf.length} pendientes</div>
-          <span style={{fontSize:F(11),color:"#94a3b8"}}>Solo lectura</span>
-        </div>
-        {sorted.map(f=>{
-          const fp=projects.find(p=>p.id===f.projectId);
-          return(
-            <div key={f.id} style={{background:"white",borderRadius:10,padding:16,border:`1px solid ${UC[f.urgency]}33`,marginBottom:12,borderLeft:`4px solid ${UC[f.urgency]}`}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}}>
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:700,fontSize:F(14),color:"#0f172a",marginBottom:4}}>{UL[f.urgency]} {f.subject}</div>
-                  <div style={{fontSize:F(12),color:"#64748b",marginBottom:4}}>→ {f.to}</div>
-                  {fp&&<span style={{fontSize:F(11),padding:"3px 9px",borderRadius:6,background:"#f1f5f9",color:"#475569"}}>{fp.name}</span>}
-                </div>
-                <div style={{textAlign:"right",flexShrink:0}}>
-                  <div style={{fontSize:F(13),fontWeight:700,color:UC[f.urgency]}}>{f.daysPending}d sin resp.</div>
-                  <div style={{fontSize:F(11),color:"#94a3b8",marginTop:2}}>{fDate(f.sentDate)}</div>
-                </div>
-              </div>
-              <p style={{fontSize:F(12),color:"#475569",lineHeight:1.6,margin:"0 0 12px",padding:"8px 10px",background:"#f8fafc",borderRadius:5}}>{f.context}</p>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                <a href={f.threadUrl} target="_blank" rel="noreferrer" style={{fontSize:F(12),color:"#1d4ed8",padding:"7px 14px",borderRadius:6,background:"#eff6ff",textDecoration:"none",fontWeight:700}}>✉️ Abrir en Gmail</a>
-                <button onClick={()=>resolveFollow(f.id)} style={{...btn("#dcfce7","#166534"),fontSize:F(12),padding:"7px 14px"}}>✅ Resuelto</button>
-                <button onClick={()=>resolveFollow(f.id)} style={{...btn("#f1f5f9","#64748b"),fontSize:F(12),padding:"7px 14px"}}>✕ Descartar</button>
-              </div>
-            </div>
-          );
-        })}
-        {gf.filter(f=>f.status==="resuelto").length>0&&(
-          <div style={{fontSize:F(11),color:"#94a3b8",textAlign:"center",marginTop:6}}>
-            {gf.filter(f=>f.status==="resuelto").length} resuelto(s) · <span style={{cursor:"pointer",color:"#1d4ed8"}} onClick={()=>saveGf(GF_INIT)}>Restablecer</span>
-          </div>
-        )}
-      </div>
-    );
-  };
 
+  // GmailPanel → ver GmailFollowPanel (componente externo)
+
+  
   // ── DASHBOARD ─────────────────────────────────────
   const dashContent=(
     <div style={{padding:mob?"16px 16px 90px":"24px",...scroll}}>
@@ -1288,7 +1494,13 @@ export default function Page(){
         </div>
       )}
 
-      <GmailPanel/>
+      <GmailFollowPanel
+        gf={gf} projects={projects} readReceipts={readReceipts}
+        resolveFollow={resolveFollow} syncStatus={syncStatus}
+        syncingReceipts={syncingReceipts} syncReadReceipts={syncReadReceipts}
+        schedLog={schedLog} F={F} btn={btn} UC={UC} UL={UL}
+        fDate={fDate} fDateTime={fDateTime}
+      />
 
       {/* ── SIEVAP COUNTDOWN ── */}
       {(()=>{
@@ -1734,7 +1946,7 @@ export default function Page(){
             })}
             <div style={{marginTop:12}}>
               <div style={{fontSize:F(12),fontWeight:700,color:"#64748b",marginBottom:8}}>+ Agregar reunión manualmente</div>
-              <AddEventForm onAdd={(ev)=>saveCal([...calendarEvents,{...ev,id:uid(),projectId:proj.id}])} projects={projects}/>
+              <AddEventForm onAdd={(ev)=>saveCal([...calendarEvents,{...ev,id:uid(),projectId:proj.id}])} projects={projects} F={F} btn={btn} lbl={lbl} inp={inp} mob={mob}/>
             </div>
           </div>
         )}
@@ -1838,239 +2050,6 @@ export default function Page(){
     </div>
   );
 
-  // ── PANEL ACUSES DE LECTURA ──────────────────────────────────────
-  const AcusesPanel = () => {
-    const[filter,setFilter]=useState("all");
-    const[search,setSearch]=useState("");
-    const PROJ_N={"p1":"6ta Comisaría","p2":"Integración Cámaras","p3":"CCTV Centuras","p4":"UV32","p5":"Sala Monitoreo"};
-    const PROJ_C={"p1":"#dc2626","p2":"#185FA5","p3":"#059669","p4":"#d97706","p5":"#7c3aed"};
-    const ini=name=>name.split(" ").filter(w=>w.length>2).slice(0,2).map(w=>w[0]).toUpperCase().join("");
-    const fdt=iso=>{
-      if(!iso)return"—";
-      const d=new Date(iso.includes("T")?iso:iso.replace(" ","T"));
-      return d.toLocaleDateString("es-CL",{day:"2-digit",month:"short"})+" "+d.toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"});
-    };
-    const getStatus=e=>{
-      const total=(e.recipients||[]).length;
-      const read=(e.recipients||[]).filter(r=>r.readAt).length;
-      if(!total)return"pending";
-      return read===total?"all_read":read>0?"partial":"pending";
-    };
-    const [expanded,setExpanded]=useState(new Set());
-    const toggle=id=>setExpanded(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});
-
-    // Datos: usa readReceipts (dinámico desde Gmail) o datos iniciales
-    const INIT_RECEIPTS=[
-      {id:"e1",subject:"Proyecto Central de Monitoreo -1 / Factibilidad uso de Torre Telecom",context:"Solicitud de pronunciamiento para usar Torre Telecom como repetidor 5GHz.",sentDate:"2026-04-01",sentTime:"17:14",threadUrl:"https://mail.google.com/mail/u/0/#all/19d4aa05342a51ac",project:"p5",recipients:[{name:"Elizabeth Nuñez",email:"enunez@recoleta.cl",readAt:"2026-04-01 15:26"},{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-02 08:56"},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:"2026-04-15 12:49"},{name:"Francisco Moscoso",email:"fmoscoso@recoleta.cl",readAt:"2026-04-15 13:00"},{name:"Carolina Velásquez",email:"cvelasquez@recoleta.cl",readAt:"2026-04-15 15:25"}]},
-      {id:"e2",subject:"Re: Proyecto Central de Monitoreo -1 / Factibilidad uso de Torre Telecom (seguimiento 15 abr)",context:"Seguimiento enviado el 15 abril 12:09.",sentDate:"2026-04-15",sentTime:"12:09",threadUrl:"https://mail.google.com/mail/u/0/#all/19d4aa05342a51ac",project:"p5",recipients:[{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-15 12:15"},{name:"Elizabeth Nuñez",email:"enunez@recoleta.cl",readAt:"2026-04-15 12:30"},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:"2026-04-15 12:49"},{name:"Francisco Moscoso",email:"fmoscoso@recoleta.cl",readAt:"2026-04-15 13:00"},{name:"Carolina Velásquez",email:"cvelasquez@recoleta.cl",readAt:"2026-04-15 15:25"}]},
-      {id:"e3",subject:"Re: Envia convenio MTT sobre acceso a imágenes de puntos de cámaras",context:"Acción requerida sobre convenio MTT. Enviado 15 abr 11:41.",sentDate:"2026-04-15",sentTime:"11:41",threadUrl:"https://mail.google.com/mail/u/0/#all/19d68379ad0c8606",project:"p5",recipients:[{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-15 08:51"},{name:"Carolina Velásquez",email:"cvelasquez@recoleta.cl",readAt:"2026-04-15 08:54"},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:"2026-04-15 09:10"},{name:"Elizabeth Nuñez",email:"enunez@recoleta.cl",readAt:"2026-04-15 12:28"}]},
-      {id:"e4",subject:"Re: Modificación Plazo SNSM23-STP-0039 Municipalidad Recoleta",context:"Seguimiento ficha modificación de plazo enviada a SPD. 14 abr 15:51.",sentDate:"2026-04-14",sentTime:"15:51",threadUrl:"https://mail.google.com/mail/u/0/#all/19d1ab5d03fb53ce",project:"p2",recipients:[{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-15 09:12"},{name:"Osvaldo Muñoz (SPD)",email:"omunoz@minsegpublica.gob.cl",readAt:null},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:null},{name:"Genaro Cuadros",email:"gcuadros@recoleta.cl",readAt:null}]},
-      {id:"e5",subject:"Proyecto Sala de Monitoreo Edificio Consistorial - Recoleta",context:"Correo 1 abril 13:58. Confirmaciones jefatura y Elizabeth Nuñez.",sentDate:"2026-04-01",sentTime:"13:58",threadUrl:"https://mail.google.com/mail/u/0/#all/19d49b7da102875b",project:"p5",recipients:[{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-01 15:17"},{name:"Elizabeth Nuñez",email:"enunez@recoleta.cl",readAt:"2026-04-01 15:28"},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:"2026-04-02 13:59"}]},
-    ];
-    const data = readReceipts.length>0 ? readReceipts : INIT_RECEIPTS;
-    let list=data;
-    if(filter!=="all")list=list.filter(e=>getStatus(e)===filter);
-    if(search)list=list.filter(e=>e.subject.toLowerCase().includes(search.toLowerCase())||
-      (e.recipients||[]).some(r=>r.name.toLowerCase().includes(search.toLowerCase())));
-
-    const totalConf=data.reduce((a,e)=>a+(e.recipients||[]).filter(r=>r.readAt).length,0);
-    const totalRcpt=data.reduce((a,e)=>a+(e.recipients||[]).length,0);
-    const ss=syncStatus.acuses||{state:"idle",ts:null,msg:""};
-    const stateColor=ss.state==="ok"?"#059669":ss.state==="error"?"#dc2626":ss.state==="warn"?"#d97706":"#64748b";
-
-    return(
-      <div style={{padding:mob?"16px 16px 90px":"24px",...scroll}}>
-        {/* Header */}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,flexWrap:"wrap",gap:10}}>
-          <div>
-            <div style={{fontSize:F(16),fontWeight:800,color:"#0f172a",marginBottom:3}}>👁 Acuses de Lectura</div>
-            <div style={{fontSize:F(12),color:"#64748b"}}>Seguimiento de confirmaciones en correos enviados con solicitud de lectura</div>
-          </div>
-          <button onClick={()=>syncReadReceipts(false)} disabled={syncingReceipts}
-            style={{...btn(syncingReceipts?"#94a3b8":"#7c3aed"),fontSize:F(12),padding:"9px 16px",opacity:syncingReceipts?0.7:1}}>
-            {syncingReceipts?"⏳ Sincronizando…":"🔄 Actualizar desde Gmail"}
-          </button>
-        </div>
-
-        {/* Estado de sincronización */}
-        <div style={{background:ss.state==="error"?"#fef2f2":ss.state==="ok"?"#f0fdf4":"#f8fafc",borderRadius:8,padding:"10px 14px",border:`1px solid ${stateColor}33`,marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:6}}>
-            <div style={{fontSize:F(12),color:stateColor,fontWeight:600}}>
-              {ss.state==="loading"?"⏳":ss.state==="ok"?"✓":ss.state==="error"?"✕":ss.state==="warn"?"⚠":"○"} {ss.msg||"Sin sincronizar — presiona Actualizar o espera el horario automático"}
-            </div>
-            {ss.ts&&<div style={{fontSize:F(10),color:"#94a3b8"}}>{new Date(ss.ts).toLocaleDateString("es-CL")} {new Date(ss.ts).toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}</div>}
-          </div>
-          {ss.code&&<div style={{fontSize:F(10),color:"#dc2626",marginTop:4,fontFamily:"monospace"}}>Código de falla: {ss.code}</div>}
-          <div style={{fontSize:F(10),color:"#94a3b8",marginTop:4}}>Actualización automática: 08:05 · 11:00 · 14:00 · 17:35 (L-V)</div>
-        </div>
-
-        {/* KPIs */}
-        <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:16}}>
-          {[
-            {l:"Correos con acuse",v:data.length,c:"#7c3aed",bg:"#f5f3ff"},
-            {l:"Confirmaciones",v:`${totalConf}/${totalRcpt}`,c:"#059669",bg:"#f0fdf4"},
-            {l:"Leídos todos",v:data.filter(e=>getStatus(e)==="all_read").length,c:"#3B6D11",bg:"#EAF3DE"},
-            {l:"Pendientes",v:data.filter(e=>getStatus(e)==="pending").length,c:"#A32D2D",bg:"#FCEBEB"},
-          ].map(({l,v,c,bg})=>(
-            <div key={l} style={{background:bg,borderRadius:8,padding:"12px 14px",border:`1px solid ${c}22`}}>
-              <div style={{fontSize:F(10),color:"#64748b",textTransform:"uppercase",letterSpacing:.04,marginBottom:4}}>{l}</div>
-              <div style={{fontSize:F(20),fontWeight:700,color:c}}>{v}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Filtros */}
-        <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-          {[["all","Todos"],["all_read","Leídos todos"],["partial","Parcial"],["pending","Pendientes"]].map(([f,l])=>(
-            <button key={f} onClick={()=>setFilter(f)} style={{fontSize:F(11),padding:"5px 12px",borderRadius:20,border:`0.5px solid ${filter===f?"#7c3aed":"var(--color-border-secondary)"}`,background:filter===f?"#7c3aed":"transparent",color:filter===f?"white":"var(--color-text-secondary)",cursor:"pointer"}}>
-              {l}
-            </button>
-          ))}
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar asunto o persona…" style={{flex:1,minWidth:140,fontSize:F(12),padding:"7px 12px",border:"0.5px solid var(--color-border-secondary)",borderRadius:8,background:"var(--color-background-primary)",color:"var(--color-text-primary)"}}/>
-        </div>
-
-        {/* Lista */}
-        {list.length===0&&<div style={{textAlign:"center",padding:"2rem",color:"#94a3b8",fontSize:F(13)}}>Sin resultados para el filtro actual.</div>}
-        {list.map(email=>{
-          const st=getStatus(email);
-          const total=(email.recipients||[]).length;
-          const readCount=(email.recipients||[]).filter(r=>r.readAt).length;
-          const pct=total?Math.round((readCount/total)*100):0;
-          const isOpen=expanded.has(email.id);
-          const stBadgeC=st==="all_read"?"#27500A":st==="partial"?"#633806":"#791F1F";
-          const stBadgeBg=st==="all_read"?"#EAF3DE":st==="partial"?"#FAEEDA":"#FCEBEB";
-          const stLabel=st==="all_read"?"Leído por todos":st==="partial"?`${readCount}/${total} confirmados`:"Sin confirmaciones";
-          const projColor=PROJ_C[email.project]||"#64748b";
-          const projName=PROJ_N[email.project]||"General";
-          return(
-            <div key={email.id} style={{background:"white",border:"0.5px solid var(--color-border-tertiary)",borderRadius:12,marginBottom:10,overflow:"hidden"}}>
-              <div onClick={()=>toggle(email.id)} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"14px 16px",cursor:"pointer"}}>
-                <span style={{fontSize:F(14),color:"var(--color-text-tertiary)",flexShrink:0,marginTop:2,transition:"transform .2s",display:"inline-block",transform:isOpen?"rotate(90deg)":"none"}}>▶</span>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:F(14),fontWeight:500,color:"var(--color-text-primary)",lineHeight:1.35,marginBottom:4}}>
-                    {email.subject.length>85?email.subject.slice(0,85)+"…":email.subject}
-                  </div>
-                  <div style={{fontSize:F(12),color:"var(--color-text-secondary)",marginBottom:6,lineHeight:1.5}}>{email.context}</div>
-                  <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-                    <span style={{fontSize:F(11),padding:"3px 9px",borderRadius:8,background:stBadgeBg,color:stBadgeC,fontWeight:500}}>{stLabel}</span>
-                    <span style={{fontSize:F(11),padding:"3px 8px",borderRadius:8,background:projColor+"15",color:projColor,fontWeight:500}}>{projName}</span>
-                    <span style={{fontSize:F(11),color:"var(--color-text-tertiary)"}}>{email.sentDate} {email.sentTime}</span>
-                  </div>
-                </div>
-                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <div style={{width:60,height:4,background:"var(--color-background-tertiary)",borderRadius:2,overflow:"hidden"}}>
-                      <div style={{height:"100%",width:`${pct}%`,background:pct===100?"#639922":pct>0?"#EF9F27":"#E24B4A",borderRadius:2}}/>
-                    </div>
-                    <span style={{fontSize:F(11),color:"var(--color-text-secondary)",minWidth:28}}>{pct}%</span>
-                  </div>
-                  <span style={{fontSize:F(10),color:"var(--color-text-tertiary)"}}>{readCount}/{total}</span>
-                </div>
-              </div>
-              {isOpen&&(
-                <div>
-                  <div style={{borderTop:"0.5px solid var(--color-border-tertiary)",padding:"12px 16px",display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:8}}>
-                    <div style={{gridColumn:"1/-1",fontSize:F(10),color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:.05,marginBottom:4}}>Confirmaciones por destinatario</div>
-                    {(email.recipients||[]).map(r=>{
-                      const hasRead=!!r.readAt;
-                      return(
-                        <div key={r.email} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:"var(--color-background-secondary)",borderRadius:8}}>
-                          <div style={{width:32,height:32,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:F(11),fontWeight:500,flexShrink:0,background:hasRead?"#EAF3DE":"#FCEBEB",color:hasRead?"#27500A":"#791F1F"}}>{ini(r.name)}</div>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:F(12),fontWeight:500,color:"var(--color-text-primary)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.name}</div>
-                            <div style={{fontSize:F(10),color:"var(--color-text-secondary)",marginTop:1}}>{hasRead?`Leído ${fdt(r.readAt)}`:"Sin confirmación"}</div>
-                          </div>
-                          <span style={{fontSize:F(10),padding:"2px 7px",borderRadius:4,background:hasRead?"#EAF3DE":"var(--color-background-tertiary)",color:hasRead?"#3B6D11":"var(--color-text-secondary)",flexShrink:0}}>{hasRead?"Leído":"Pendiente"}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div style={{borderTop:"0.5px solid var(--color-border-tertiary)",padding:"10px 16px",display:"flex",gap:8,alignItems:"center"}}>
-                    <a href={email.threadUrl} target="_blank" rel="noreferrer" style={{fontSize:F(12),color:"#185FA5",fontWeight:500}}>Abrir hilo en Gmail →</a>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {/* Monitor de Scheduler */}
-        <div style={{marginTop:24}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <div style={{fontSize:F(12),fontWeight:500,color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:.05}}>Monitor de Sincronización Automática</div>
-            <button onClick={()=>setShowSchedLog(v=>!v)} style={{fontSize:F(11),padding:"4px 10px",border:"0.5px solid var(--color-border-secondary)",borderRadius:6,background:"transparent",cursor:"pointer",color:"var(--color-text-secondary)"}}>
-              {showSchedLog?"Ocultar":"Ver registro"}
-            </button>
-          </div>
-
-          {/* Próximas ejecuciones */}
-          <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
-            <div style={{background:"var(--color-background-secondary)",borderRadius:8,padding:"12px 14px",border:"0.5px solid var(--color-border-tertiary)"}}>
-              <div style={{fontSize:F(10),color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:.04,marginBottom:6}}>🕐 Reloj Control — 3 veces/día (L-V)</div>
-              <div style={{fontSize:F(12),color:"var(--color-text-primary)"}}>08:00 · 13:30 · 17:30</div>
-              <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
-                {(()=>{
-                  const s=syncStatus.reloj||{};
-                  const c=s.state==="ok"?"#059669":s.state==="error"?"#dc2626":s.state==="warn"?"#d97706":"#64748b";
-                  return(
-                    <>
-                      <span style={{fontSize:F(10),padding:"2px 7px",borderRadius:4,background:c+"15",color:c}}>{s.state==="ok"?"✓ OK":s.state==="error"?"✕ Error":s.state==="warn"?"⚠ Advertencia":"○ En espera"}</span>
-                      {s.ts&&<span style={{fontSize:F(10),color:"var(--color-text-tertiary)"}}>Último: {new Date(s.ts).toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}</span>}
-                      {s.code&&<span style={{fontSize:F(10),color:"#dc2626",fontFamily:"monospace"}}>cod: {s.code}</span>}
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-            <div style={{background:"var(--color-background-secondary)",borderRadius:8,padding:"12px 14px",border:"0.5px solid var(--color-border-tertiary)"}}>
-              <div style={{fontSize:F(10),color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:.04,marginBottom:6}}>👁 Acuses de Lectura — 4 veces/día (L-V)</div>
-              <div style={{fontSize:F(12),color:"var(--color-text-primary)"}}>08:05 · 11:00 · 14:00 · 17:35</div>
-              <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
-                {(()=>{
-                  const s=syncStatus.acuses||{};
-                  const c=s.state==="ok"?"#059669":s.state==="error"?"#dc2626":s.state==="warn"?"#d97706":"#64748b";
-                  return(
-                    <>
-                      <span style={{fontSize:F(10),padding:"2px 7px",borderRadius:4,background:c+"15",color:c}}>{s.state==="ok"?"✓ OK":s.state==="error"?"✕ Error":s.state==="warn"?"⚠ Advertencia":"○ En espera"}</span>
-                      {s.ts&&<span style={{fontSize:F(10),color:"var(--color-text-tertiary)"}}>Último: {new Date(s.ts).toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}</span>}
-                      {s.code&&<span style={{fontSize:F(10),color:"#dc2626",fontFamily:"monospace"}}>cod: {s.code}</span>}
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-          </div>
-
-          {/* Log de ejecuciones */}
-          {showSchedLog&&(
-            <div style={{background:"white",border:"0.5px solid var(--color-border-tertiary)",borderRadius:8,overflow:"hidden"}}>
-              <div style={{padding:"8px 14px",background:"var(--color-background-secondary)",borderBottom:"0.5px solid var(--color-border-tertiary)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div style={{fontSize:F(11),fontWeight:500,color:"var(--color-text-secondary)"}}>Registro de ejecuciones ({schedLog.length})</div>
-                <button onClick={()=>{saveSchedLog([]);}} style={{fontSize:F(10),color:"#94a3b8",background:"none",border:"none",cursor:"pointer"}}>Limpiar</button>
-              </div>
-              {schedLog.length===0&&<div style={{padding:"1rem",fontSize:F(12),color:"var(--color-text-tertiary)",textAlign:"center"}}>Sin ejecuciones registradas aún.</div>}
-              {schedLog.slice(0,20).map(entry=>{
-                const c=entry.result==="ok"?"#059669":entry.result==="error"?"#dc2626":"#d97706";
-                return(
-                  <div key={entry.id} style={{padding:"10px 14px",borderBottom:"0.5px solid var(--color-border-tertiary)",display:"flex",gap:10,alignItems:"flex-start"}}>
-                    <span style={{fontSize:F(13),flexShrink:0,marginTop:1}}>{entry.result==="ok"?"✓":entry.result==="error"?"✕":"⚠"}</span>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:2,flexWrap:"wrap"}}>
-                        <span style={{fontSize:F(11),fontWeight:500,color:c,textTransform:"uppercase"}}>{entry.type}</span>
-                        <span style={{fontSize:F(10),color:"var(--color-text-tertiary)"}}>{new Date(entry.ts).toLocaleDateString("es-CL")} {new Date(entry.ts).toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}</span>
-                        {entry.code&&<span style={{fontSize:F(10),color:"#dc2626",fontFamily:"monospace",background:"#fef2f2",padding:"1px 5px",borderRadius:3}}>{entry.code}</span>}
-                      </div>
-                      <div style={{fontSize:F(12),color:"var(--color-text-secondary)",lineHeight:1.4}}>{entry.msg}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
 
   // ── CHAT ──────────────────────────────────────────
   const chatPanel=(
@@ -2154,10 +2133,7 @@ export default function Page(){
           <span>✅ Solicitudes Respondidas</span>
           {answeredRequests.length>0&&<span style={{fontSize:F(10),background:"#22c55e33",color:"#22c55e",padding:"1px 7px",borderRadius:10,fontWeight:700}}>{answeredRequests.length}</span>}
         </button>
-        <button onClick={()=>{setSel(null);setView("dash");setMainTab("acuses");}} style={{width:"100%",padding:"11px 14px",borderRadius:7,background:mainTab==="acuses"?"#1e3a5f":"transparent",color:mainTab==="acuses"?"#93c5fd":"#64748b",border:"none",cursor:"pointer",textAlign:"left",fontSize:F(13),fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-          <span>👁 Acuses de Lectura</span>
-          {readReceipts.length>0&&<span style={{fontSize:F(10),background:"#7c3aed33",color:"#a78bfa",padding:"1px 7px",borderRadius:10,fontWeight:700}}>{readReceipts.length}</span>}
-        </button>
+
         {/* Nueva entrada: Calendario */}
         <button onClick={()=>{setSel(null);setView("dash");setMainTab("calendar");}} style={{width:"100%",padding:"11px 14px",borderRadius:7,background:mainTab==="calendar"?"#1e3a5f":"transparent",color:mainTab==="calendar"?"#93c5fd":"#64748b",border:"none",cursor:"pointer",textAlign:"left",fontSize:F(13),fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
           <span>📅 Calendario</span>
@@ -2227,7 +2203,7 @@ export default function Page(){
               {/* Render según mainTab */}
               {view!=="project"&&view!=="chat"&&mainTab==="dash"&&<div style={{flex:1,...scroll}}>{dashContent}</div>}
               {view!=="project"&&view!=="chat"&&mainTab==="answered"&&<div style={{flex:1,...scroll}}><AnsweredPanel/></div>}
-              {view!=="project"&&view!=="chat"&&mainTab==="acuses"&&<div style={{flex:1,...scroll}}><AcusesPanel/></div>}
+
               {view!=="project"&&view!=="chat"&&mainTab==="calendar"&&<div style={{flex:1,...scroll}}><CalendarPanel/></div>}
               {view==="project"&&proj&&projDetail}
             </div>
