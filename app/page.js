@@ -212,8 +212,7 @@ export default function Page(){
     calendarEvents.filter(e => e.projectId === projId || detectProject((e.title||"")+(e.description||"")) === projId);
 
   // ── SINCRONIZAR DRIVE ─────────────────────────────
-  // Llama a /api/ai con type:"drive_sync" → el backend lee la carpeta y devuelve
-  // un resumen estructurado por proyecto para complementar descripciones y estado.
+  // ── DRIVE SYNC — usa MCP Google Drive real vía /api/ai ───────────
   const syncDrive = async () => {
     setSyncingDrive(true);
     try {
@@ -222,12 +221,15 @@ export default function Page(){
         headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
           type: "drive_sync",
-          folderId: "1KtyHfsGgq4YpUA5kCG4Bh2I6BGcK2RCD",
-          projects: projects.map(p=>({id:p.id, name:p.name, code:p.licitId||""}))
+          projects: projects.map(p=>({
+            id: p.id,
+            name: p.name,
+            code: p.licitId||"",
+            keywords: PROJ_KEYWORDS[p.id]||[]
+          }))
         })
       });
       const data = await res.json();
-      // Esperamos: { updates: [ {projectId, desc, stage, status, notes} ] }
       let updates;
       try { updates = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
       catch { updates = []; }
@@ -237,13 +239,18 @@ export default function Page(){
         const upd = projects.map(p => {
           const u = updates.find(x=>x.projectId===p.id);
           if(!u) return p;
-          newDs[p.id] = {lastSync: now, summary: u.summary||""};
+          newDs[p.id] = {
+            lastSync: now, summary: u.summary||"",
+            docsFound: u.docsFound||[], lastDocDate: u.lastDocDate||""
+          };
           return {
             ...p,
             desc: u.desc || p.desc,
             stage: u.stage || p.stage,
             status: u.status || p.status,
-            notes: u.notes ? (p.notes ? p.notes+"\n\n[Drive sync "+now.slice(0,10)+"] "+u.notes : u.notes) : p.notes,
+            notes: u.notes
+              ? (p.notes ? p.notes+"\n\n[Drive "+now.slice(0,10)+"] "+u.notes : u.notes)
+              : p.notes,
           };
         });
         saveP(upd);
@@ -264,24 +271,82 @@ export default function Page(){
         headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
           type: "calendar_sync",
-          projects: projects.map(p=>({id:p.id, name:p.name, keywords:PROJ_KEYWORDS[p.id]||[]}))
+          projects: projects.map(p=>({
+            id: p.id,
+            name: p.name,
+            keywords: PROJ_KEYWORDS[p.id]||[]
+          }))
         })
       });
       const data = await res.json();
-      // Esperamos: [ {id, title, start, time, description, projectId, url} ]
       let evs;
       try { evs = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
       catch { evs = []; }
       if(Array.isArray(evs)){
-        // Auto-clasificar por keywords si projectId no viene
         const classified = evs.map(e => ({
           ...e,
           projectId: e.projectId || detectProject((e.title||"")+(e.description||""))
         }));
-        saveCal(classified);
+        // Preservar eventos agregados manualmente (sin messageId de Gmail)
+        const manual = calendarEvents.filter(e => !e.id || e.id.startsWith("manual_"));
+        const merged = [...manual, ...classified.filter(e => !manual.find(m=>m.title===e.title&&m.start===e.start))];
+        saveCal(merged);
       }
     } catch(e){ console.error("Calendar sync error", e); }
     setSyncingCal(false);
+  };
+
+  // ── GMAIL SCAN — escaneo periódico de correos nuevos ─────────────
+  // Detecta correos que requieren acción y los agrega como seguimientos
+  const[scanningGmail,setScanningGmail]=useState(false);
+  const[lastGmailScan,setLastGmailScan]=useState(()=>S.get("sp_last_scan")||null);
+
+  const scanGmail = async () => {
+    setScanningGmail(true);
+    try {
+      const since = new Date(Date.now() - 7*86400000).toISOString().slice(0,10).replace(/-/g,"/");
+      const res = await fetch("/api/ai", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          type: "gmail_scan",
+          since,
+          projects: projects.map(p=>({
+            id: p.id, name: p.name,
+            keywords: PROJ_KEYWORDS[p.id]||[]
+          }))
+        })
+      });
+      const data = await res.json();
+      let found;
+      try { found = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
+      catch { found = []; }
+
+      if(Array.isArray(found) && found.length > 0){
+        // Agregar correos que requieren acción como nuevos seguimientos
+        const newFollows = found
+          .filter(m => m.requiresResponse && m.type !== "informativo")
+          .filter(m => !gf.find(f => f.threadUrl?.includes(m.threadId||m.messageId)))
+          .map(m => ({
+            id: "scan_"+m.messageId,
+            projectId: m.projectId||"",
+            urgency: m.urgency||"media",
+            subject: m.subject||"(sin asunto)",
+            to: m.from||"",
+            context: m.summary||"",
+            sentDate: m.date||new Date().toISOString().slice(0,10),
+            daysPending: Math.floor((Date.now()-new Date(m.date||Date.now()).getTime())/86400000),
+            status: "pendiente",
+            threadUrl: m.emailUrl||"https://mail.google.com/mail/u/0/#inbox/"+m.messageId,
+            autoDetected: true,
+          }));
+        if(newFollows.length > 0) saveGf([...gf, ...newFollows]);
+      }
+      const now = new Date().toISOString();
+      setLastGmailScan(now);
+      S.set("sp_last_scan", now);
+    } catch(e){ console.error("Gmail scan error", e); }
+    setScanningGmail(false);
   };
 
   // ── VERIFICAR TAREA COMPLETADA EN GMAIL ──────────
@@ -822,24 +887,50 @@ export default function Page(){
       </div>
 
       {/* Drive sync banner */}
+      {/* Drive sync detail — mostrado solo cuando hay datos */}
       {Object.keys(driveSync).length > 0 && (
-        <div style={{background:"#f0fdf4",borderRadius:8,padding:"10px 14px",border:"1px solid #bbf7d0",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
-          <div style={{fontSize:F(12),color:"#15803d"}}>
-            📂 Drive sincronizado · {Object.keys(driveSync).length} proyecto(s) actualizados
+        <div style={{background:"#f0fdf4",borderRadius:8,padding:"10px 14px",border:"1px solid #bbf7d0",marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+            <div style={{fontSize:F(12),color:"#15803d",fontWeight:600}}>
+              📂 {Object.keys(driveSync).length} proyecto(s) sincronizados desde Drive
+            </div>
           </div>
-          <button onClick={syncDrive} disabled={syncingDrive} style={{...btn(syncingDrive?"#94a3b8":"#15803d"),fontSize:F(11),padding:"5px 12px",opacity:syncingDrive?0.6:1}}>
-            {syncingDrive?"⏳":"🔄"} Re-sincronizar
-          </button>
+          {Object.entries(driveSync).map(([pid,ds])=>{
+            const p=projects.find(x=>x.id===pid);
+            if(!p||!ds.docsFound?.length) return null;
+            return(
+              <div key={pid} style={{marginTop:6,fontSize:F(11),color:"#064e3b"}}>
+                <strong>{p.name.split(" ").slice(0,4).join(" ")}…</strong>: {ds.docsFound.slice(0,3).join(", ")}{ds.docsFound.length>3?` +${ds.docsFound.length-3} más`:""}
+                {ds.lastDocDate&&<span style={{color:"#6ee7b7",marginLeft:6}}>· {ds.lastDocDate}</span>}
+              </div>
+            );
+          })}
         </div>
       )}
-      {Object.keys(driveSync).length === 0 && (
-        <div style={{background:"#eff6ff",borderRadius:8,padding:"10px 14px",border:"1px solid #bfdbfe",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
-          <div style={{fontSize:F(12),color:"#1e3a5f"}}>📂 Sincroniza Drive para actualizar antecedentes de proyectos automáticamente</div>
-          <button onClick={syncDrive} disabled={syncingDrive} style={{...btn(syncingDrive?"#94a3b8":"#1d4ed8"),fontSize:F(11),padding:"5px 12px",opacity:syncingDrive?0.6:1}}>
-            {syncingDrive?"⏳ Sincronizando…":"📂 Sincronizar Drive"}
-          </button>
+      {/* ── Barra de sincronización integrada ── */}
+      <div style={{background:"#f8fafc",borderRadius:10,padding:"12px 16px",border:"1px solid #e2e8f0",marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div style={{fontSize:F(12),fontWeight:700,color:"#334155"}}>Sincronización de datos</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button onClick={syncDrive} disabled={syncingDrive} style={{...btn(syncingDrive?"#94a3b8":"#059669"),fontSize:F(11),padding:"7px 12px",opacity:syncingDrive?0.7:1}}>
+              {syncingDrive?"⏳":"📂"} Drive{driveSync&&Object.keys(driveSync).length>0?" ✓":""}
+            </button>
+            <button onClick={syncCalendar} disabled={syncingCal} style={{...btn(syncingCal?"#94a3b8":"#0284c7"),fontSize:F(11),padding:"7px 12px",opacity:syncingCal?0.7:1}}>
+              {syncingCal?"⏳":"📅"} Calendario{calendarEvents.length>0?" ("+calendarEvents.length+")":""}
+            </button>
+            <button onClick={scanGmail} disabled={scanningGmail} style={{...btn(scanningGmail?"#94a3b8":"#dc2626"),fontSize:F(11),padding:"7px 12px",opacity:scanningGmail?0.7:1}}>
+              {scanningGmail?"⏳":"📬"} Gmail{pendingGf.filter(f=>f.autoDetected).length>0?" (+"+pendingGf.filter(f=>f.autoDetected).length+")":""}
+            </button>
+          </div>
         </div>
-      )}
+        {(lastGmailScan||Object.keys(driveSync).length>0||calendarEvents.length>0)&&(
+          <div style={{marginTop:8,fontSize:F(10),color:"#94a3b8",display:"flex",gap:16,flexWrap:"wrap"}}>
+            {lastGmailScan&&<span>📬 Gmail: {new Date(lastGmailScan).toLocaleDateString("es-CL")} {new Date(lastGmailScan).toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}</span>}
+            {Object.keys(driveSync).length>0&&<span>📂 Drive: {Object.values(driveSync)[0]?.lastSync?.slice(0,10)||"—"}</span>}
+            {calendarEvents.length>0&&<span>📅 {calendarEvents.filter(e=>e.start>=new Date().toISOString().slice(0,10)).length} próximos · {calendarEvents.length} total</span>}
+          </div>
+        )}
+      </div>
 
       {/* Próximas reuniones resumen */}
       {calendarEvents.filter(e=>e.start>=new Date().toISOString().slice(0,10)).length > 0 && (
