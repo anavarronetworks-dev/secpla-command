@@ -142,10 +142,10 @@ const GF_INIT = [
 
 const INIT_P = [
   {id:"p1",name:"Servicio de Habilitación Tecnológica 6ta Comisaría",budget:40000000,stage:"Formulación",status:"En curso",deadline:"",financier:"SPD",program:"FNSP",desc:"Servicio de habilitación tecnológica sala de televigilancia en la Sexta Comisaría de Carabineros de Recoleta. ID convenio referencia: 1431841-10-LE25. Pendiente definición de ITS y empalme eléctrico con ENEL.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
-  {id:"p2",name:"Integración de Cámaras de Televigilancia en la Comuna de Recoleta",budget:100000000,stage:"Licitación",status:"En curso",deadline:"",financier:"SPD",program:"FNSP — SNSM2025",desc:"Integración de cámaras de televigilancia. 7 postaciones nuevas galvanizadas 15m, cámaras PTZ reconocimiento facial y ANPR, transmisión inalámbrica. ID SPD: SNSM23-STP-0039. Ficha de modificación de plazo enviada a SPD pendiente aprobación.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
-  {id:"p3",name:"Sistemas de CCTV, Centros Culturales",budget:26000000,stage:"Licitación",status:"En curso",deadline:"",financier:"SPD",program:"FNSP",desc:"Sistema de CCTV para centros culturales de Recoleta. CDP N°79 emitido. Antecedentes entregados a SECPLA el 25 marzo. Pendiente publicación en Mercado Público.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
-  {id:"p4",name:"Cámaras de Televigilancia UV N°32",budget:914000000,stage:"Adjudicación",status:"En curso",deadline:"2026-04-30",financier:"GORE",program:"FNDR",desc:"Cámaras de vigilancia urbana para sectores de Recoleta. Adjudicación programada para el 30 de abril. Pendiente recepción de BNUP.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
-  {id:"p5",name:"Habilitación Sala de Monitoreo Edificio Consistorial e Integración Puntos de Cámaras",budget:0,stage:"Licitación",status:"Con alerta",deadline:"2026-04-16",financier:"Municipal",program:"Presupuesto Municipal",desc:"Habilitación sala de monitoreo en edificio consistorial. Ex licitación ID 1431841-10-B226 declarada desierta. Actualmente en trato directo.",notes:"",aiSummary:"",licitId:"1431841-10-B226",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]}
+  {id:"p2",name:"Integración de Cámaras de Televigilancia en la Comuna de Recoleta",budget:100000000,stage:"Licitación",status:"En curso",deadline:"",financier:"SPD",program:"SNSM 2025",codigoProyecto:"SNSM25-STP-0113",codigoSIGE:"22004928",desc:"Integración de cámaras de televigilancia. 7 postaciones nuevas galvanizadas 15m, cámaras PTZ reconocimiento facial y ANPR, transmisión inalámbrica. ID SPD: SNSM23-STP-0039. Ficha de modificación de plazo enviada a SPD pendiente aprobación.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
+  {id:"p3",name:"Sistemas de CCTV, Centros Culturales",budget:26000000,stage:"Licitación",status:"En curso",deadline:"",financier:"SPD",program:"FNSP",codigoProyecto:"CDP N°79",desc:"Sistema de CCTV para centros culturales de Recoleta. CDP N°79 emitido. Antecedentes entregados a SECPLA el 25 marzo. Pendiente publicación en Mercado Público.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
+  {id:"p4",name:"Cámaras de Televigilancia UV N°32",budget:914371153,stage:"Adjudicación",status:"En curso",deadline:"2026-04-30",financier:"GORE RM",program:"FNDR",codigoProyecto:"BIP 40066179-0",desc:"Cámaras de vigilancia urbana para sectores de Recoleta. Adjudicación programada para el 30 de abril. Pendiente recepción de BNUP.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
+  {id:"p5",name:"Habilitación Sala de Monitoreo Edificio Consistorial e Integración Puntos de Cámaras",budget:100000000,stage:"Licitación",status:"Con alerta",deadline:"2026-06-30",financier:"SPD",program:"SNSM 2023",codigoProyecto:"SNSM23-STP-0039 / SNSM23-CMP-0010",codigoSIGE:"21460117",desc:"Habilitación sala de monitoreo en edificio consistorial e integración puntos de cámaras. Licitación pública LP25 desierta (dic 2025), LP26 revocada (feb 2026). Actualmente en trato directo. Convenio SPD aprobado REX 1347 (29-jun-2023).",notes:"",aiSummary:"",licitId:"1431841-68-LP25",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[],convenio:{suscripcion:"2023-06-05",plazoEjecucionFin:"2026-06-30",plazoConvenioFin:"2026-09-30",modificaciones:[{tipo:"Mod. técnica intraítem",oficio:"N°1258 SPD",aprobacion:"2025-05-20",estado:"aprobada"},{tipo:"Ampliación plazo 13 meses",oficio:"N°2321 SPD",aprobacion:"2025-09-04",estado:"aprobada"}]}}
 ];
 const EF = {name:"",budget:"",stage:"Formulación",status:"Pendiente",deadline:"",financier:"GORE",program:"",desc:"",notes:"",licitId:""};
 
@@ -170,6 +170,47 @@ export default function Page(){
   const[clockData]=useState(ALL_CLOCK);
   const[clockMonth,setClockMonth]=useState("2026-04");
   const[clockOpen,setClockOpen]=useState(false);
+  const[clockLiveData,setClockLiveData]=useState(()=>S.get("sp_clock_live")||{});
+  const[checkingClock,setCheckingClock]=useState(false);
+
+  // ── checkClockNow: consulta reloj solo en ventanas permitidas ─────────
+  // Regla: lunes-viernes, solo 09:25-09:45 (entrada) y 18:15-18:30 (salida)
+  const checkClockNow = async (force=false) => {
+    setCheckingClock(true);
+    try {
+      const res = await fetch("/api/ai", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ type: "clock_check" })
+      });
+      const data = await res.json();
+      let result;
+      try { result = JSON.parse((data.text||"{}").replace(/```json|```/g,"").trim()); }
+      catch { result = {}; }
+      if(!result.blocked){
+        const today = new Date().toISOString().slice(0,10);
+        const updated = {...clockLiveData, [today]: result};
+        setClockLiveData(updated);
+        S.set("sp_clock_live", updated);
+      }
+      return result;
+    } catch(e){ console.error("Clock check error", e); return {}; }
+    finally { setCheckingClock(false); }
+  };
+
+  // Auto-check silencioso al cargar si estamos en ventana horaria
+  useEffect(()=>{
+    const now = new Date();
+    const dow = now.getDay(); // 0=Dom
+    if(dow < 1 || dow > 5) return; // solo L-V
+    const hm = now.getHours()*100 + now.getMinutes();
+    if((hm>=925&&hm<=945)||(hm>=1815&&hm<=1830)){
+      const today = now.toISOString().slice(0,10);
+      if(!clockLiveData[today] || force){
+        checkClockNow();
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
   const[sel,setSel]=useState(null);const[tab,setTab]=useState("overview");const[view,setView]=useState("dash");
   // ── NUEVOS ESTADOS ─────────────────────────────────
   const[mainTab,setMainTab]=useState("dash"); // "dash" | "answered" | "calendar"
@@ -298,6 +339,51 @@ export default function Page(){
 
   // ── GMAIL SCAN — escaneo periódico de correos nuevos ─────────────
   // Detecta correos que requieren acción y los agrega como seguimientos
+  const[convenioData,setConvenioData]=useState(()=>S.get("sp_convenio")||[]);
+  const[trackingConvenio,setTrackingConvenio]=useState(false);
+
+  const trackConvenios = async () => {
+    setTrackingConvenio(true);
+    try {
+      const res = await fetch("/api/ai", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          type: "convenio_track",
+          projects: projects.map(p=>({
+            id: p.id, name: p.name,
+            codigoProyecto: p.codigoProyecto||"",
+            plazoEjecucionFin: p.convenio?.plazoEjecucionFin||p.deadline||"",
+            plazoConvenioFin: p.convenio?.plazoConvenioFin||""
+          }))
+        })
+      });
+      const data = await res.json();
+      let result;
+      try { result = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
+      catch { result = []; }
+      if(Array.isArray(result) && result.length > 0){
+        setConvenioData(result);
+        S.set("sp_convenio", result);
+        // Actualizar deadline en proyectos si hay datos nuevos
+        const upd = projects.map(p=>{
+          const cd = result.find(c=>c.projectId===p.id);
+          if(!cd) return p;
+          return {
+            ...p,
+            deadline: cd.plazoEjecucionFin || p.deadline,
+            convenio: { ...(p.convenio||{}),
+              plazoEjecucionFin: cd.plazoEjecucionFin,
+              plazoConvenioFin: cd.plazoConvenioFin,
+              modificacionesPendientes: cd.modificacionesPendientes||[]
+            }
+          };
+        });
+        saveP(upd);
+      }
+    } catch(e){ console.error("Convenio track error", e); }
+    setTrackingConvenio(false);
+  };
+
   const[scanningGmail,setScanningGmail]=useState(false);
   const[lastGmailScan,setLastGmailScan]=useState(()=>S.get("sp_last_scan")||null);
 
@@ -921,6 +1007,12 @@ export default function Page(){
             <button onClick={scanGmail} disabled={scanningGmail} style={{...btn(scanningGmail?"#94a3b8":"#dc2626"),fontSize:F(11),padding:"7px 12px",opacity:scanningGmail?0.7:1}}>
               {scanningGmail?"⏳":"📬"} Gmail{pendingGf.filter(f=>f.autoDetected).length>0?" (+"+pendingGf.filter(f=>f.autoDetected).length+")":""}
             </button>
+            <button onClick={trackConvenios} disabled={trackingConvenio} style={{...btn(trackingConvenio?"#94a3b8":"#7c3aed"),fontSize:F(11),padding:"7px 12px",opacity:trackingConvenio?0.7:1}}>
+              {trackingConvenio?"⏳":"📋"} Convenios{convenioData.filter(c=>c.modificacionesPendientes?.length>0).length>0?" (⚠️)":""}
+            </button>
+            <button onClick={()=>checkClockNow(true)} disabled={checkingClock} title="Consulta reloj solo en ventanas 09:30 y 18:20 L-V" style={{...btn(checkingClock?"#94a3b8":"#0f172a"),fontSize:F(11),padding:"7px 12px",opacity:checkingClock?0.7:1}}>
+              {checkingClock?"⏳":"🕐"} Reloj
+            </button>
           </div>
         </div>
         {(lastGmailScan||Object.keys(driveSync).length>0||calendarEvents.length>0)&&(
@@ -1256,10 +1348,89 @@ export default function Page(){
                 </div>
               ))}
               {driveSync[proj.id]&&<div style={{marginTop:10,padding:"6px 10px",background:"#f0fdf4",borderRadius:6,fontSize:F(11),color:"#15803d"}}>📂 Última sync Drive: {driveSync[proj.id].lastSync?.slice(0,10)}</div>}
+              {proj.codigoProyecto&&(
+                <div style={{marginTop:8,padding:"6px 10px",background:"#f8fafc",borderRadius:6,fontSize:F(11),color:"#334155"}}>
+                  🔑 Código: <strong style={{fontFamily:"monospace"}}>{proj.codigoProyecto}</strong>
+                  {proj.codigoSIGE&&<span style={{color:"#94a3b8",marginLeft:8}}>SIGE: {proj.codigoSIGE}</span>}
+                </div>
+              )}
               <button onClick={()=>{setForm({...proj,budget:proj.budget||""});setEditId(proj.id);setShowForm(true);}} style={{...btn("#f1f5f9","#374151"),width:"100%",marginTop:14,fontSize:F(13)}}>✏️ Editar Proyecto</button>
             </div>
             {proj.aiSummary&&<div style={{background:"#eff6ff",borderRadius:10,padding:16,border:"1px solid #bfdbfe"}}><div style={{fontSize:F(11),fontWeight:700,color:"#1d4ed8",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>✨ Resumen IA</div><p style={{fontSize:F(13),color:"#1e3a5f",lineHeight:1.7,margin:0}}>{proj.aiSummary}</p></div>}
             {proj.licitId&&<LicitCard p={proj}/>}
+            {/* Panel convenio del proyecto */}
+            {(proj.convenio||convenioData.find(c=>c.projectId===proj.id))&&(()=>{
+              const cd = convenioData.find(c=>c.projectId===proj.id);
+              const cv = proj.convenio||{};
+              const fin = cd?.plazoEjecucionFin || cv.plazoEjecucionFin || proj.deadline;
+              const cvFin = cd?.plazoConvenioFin || cv.plazoConvenioFin;
+              const today = new Date().toISOString().slice(0,10);
+              const daysLeft = fin ? Math.round((new Date(fin)-new Date())/(1000*60*60*24)) : null;
+              const pendMods = cd?.modificacionesPendientes||cv.modificaciones?.filter(m=>m.estado!=="aprobada")||[];
+              const alertColor = daysLeft===null?"#64748b":daysLeft<30?"#ef4444":daysLeft<90?"#f97316":"#059669";
+              const alertBg = daysLeft===null?"#f8fafc":daysLeft<30?"#fef2f2":daysLeft<90?"#fff7ed":"#f0fdf4";
+              return(
+                <div style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                    <div style={{fontSize:F(11),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1}}>📋 Convenio & Plazos</div>
+                    <button onClick={trackConvenios} disabled={trackingConvenio} style={{...btn(trackingConvenio?"#94a3b8":"#7c3aed"),fontSize:F(10),padding:"4px 10px"}}>
+                      {trackingConvenio?"⏳":"🔄"} Actualizar
+                    </button>
+                  </div>
+                  {proj.codigoProyecto&&(
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+                      <span style={{fontSize:F(11),padding:"3px 10px",borderRadius:8,background:"#f1f5f9",color:"#334155",fontWeight:700,fontFamily:"monospace"}}>
+                        🔑 {proj.codigoProyecto}
+                      </span>
+                      {proj.codigoSIGE&&<span style={{fontSize:F(11),padding:"3px 10px",borderRadius:8,background:"#eff6ff",color:"#1e3a5f",fontFamily:"monospace"}}>SIGE: {proj.codigoSIGE}</span>}
+                    </div>
+                  )}
+                  <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
+                    {fin&&(
+                      <div style={{background:alertBg,borderRadius:8,padding:"10px 12px",border:`1px solid ${alertColor}33`}}>
+                        <div style={{fontSize:F(10),color:"#64748b",textTransform:"uppercase",letterSpacing:0.7,marginBottom:3}}>Vence ejecución</div>
+                        <div style={{fontSize:F(14),fontWeight:700,color:alertColor}}>{fDate(fin)}</div>
+                        {daysLeft!==null&&<div style={{fontSize:F(11),color:alertColor,marginTop:2}}>
+                          {daysLeft>0?`${daysLeft} días restantes`:daysLeft===0?"⚠️ Vence hoy":`⚠️ Vencido hace ${Math.abs(daysLeft)} días`}
+                        </div>}
+                      </div>
+                    )}
+                    {cvFin&&(
+                      <div style={{background:"#f8fafc",borderRadius:8,padding:"10px 12px",border:"1px solid #e2e8f0"}}>
+                        <div style={{fontSize:F(10),color:"#64748b",textTransform:"uppercase",letterSpacing:0.7,marginBottom:3}}>Vence convenio</div>
+                        <div style={{fontSize:F(14),fontWeight:700,color:"#475569"}}>{fDate(cvFin)}</div>
+                        <div style={{fontSize:F(11),color:"#94a3b8",marginTop:2}}>{Math.round((new Date(cvFin)-new Date())/(1000*60*60*24))} días</div>
+                      </div>
+                    )}
+                  </div>
+                  {/* Modificaciones */}
+                  {(cv.modificaciones||[]).length>0&&(
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:F(10),color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.7,marginBottom:6}}>Modificaciones</div>
+                      {cv.modificaciones.map((m,i)=>(
+                        <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:5,fontSize:F(12)}}>
+                          <span style={{color:m.estado==="aprobada"?"#059669":"#f59e0b",flexShrink:0,marginTop:1}}>{m.estado==="aprobada"?"✅":"⏳"}</span>
+                          <div>
+                            <span style={{color:"#334155"}}>{m.tipo}</span>
+                            {m.oficio&&<span style={{color:"#94a3b8",marginLeft:6}}>{m.oficio}</span>}
+                            {m.aprobacion&&<span style={{color:"#64748b",marginLeft:6}}>· {fDate(m.aprobacion)}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Trámites pendientes detectados por Gmail */}
+                  {pendMods.length>0&&pendMods.map((pm,i)=>(
+                    <div key={i} style={{background:"#fffbeb",borderRadius:8,padding:"10px 12px",border:"1px solid #fde68a",marginTop:6}}>
+                      <div style={{fontSize:F(11),fontWeight:700,color:"#92400e",marginBottom:4}}>⏳ {pm.tipo} — EN TRÁMITE</div>
+                      {pm.fechaSolicitud&&<div style={{fontSize:F(11),color:"#78350f"}}>Solicitado: {fDate(pm.fechaSolicitud)}</div>}
+                      {pm.proximoPaso&&<div style={{fontSize:F(11),color:"#92400e",marginTop:3,fontWeight:600}}>→ {pm.proximoPaso}</div>}
+                      {pm.emailUrl&&<a href={pm.emailUrl} target="_blank" rel="noreferrer" style={{fontSize:F(11),color:"#1d4ed8",fontWeight:700,marginTop:4,display:"block"}}>Ver correo →</a>}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
             {/* Reuniones del proyecto en Overview */}
             <CalMini projId={proj.id}/>
             <div style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0"}}><div style={{fontSize:F(11),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Descripción Técnica</div><p style={{fontSize:F(13),color:"#334155",lineHeight:1.7,margin:0}}>{proj.desc}</p></div>
