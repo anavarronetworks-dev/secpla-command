@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 
 // ── ESCALA GLOBAL DE FUENTE ─────────────────────────────
 const F = (n) => `${Math.round(n * 1.5)}px`;
