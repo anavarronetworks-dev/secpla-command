@@ -494,11 +494,15 @@ export default function Page(){
       const res = await fetch("/api/ai", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ type: "clock_sync", since: "2026/01/01" })
-      });
+      }).catch(netErr=>{throw Object.assign(new Error(netErr.message),{name:"TypeError",code:"NETWORK"});});
       if(!res.ok) {
         const errData = await res.json().catch(()=>({}));
-        const code = errData.errorCode||res.status;
-        setSyncStatus(p=>({...p,reloj:{state:"error",ts:new Date().toISOString(),msg:`Error ${code}: ${errData.errorMessage||"falla de red"}`,code}}));
+        const code = String(errData.errorCode||res.status);
+        const hint = res.status===400?"Verificar configuración del servidor":
+                     res.status===401||res.status===403?"Sin autorización — revisar credenciales Google":
+                     res.status>=500?"Error interno del servidor":
+                     errData.errorMessage||"Error de red";
+        setSyncStatus(p=>({...p,reloj:{state:"error",ts:new Date().toISOString(),msg:`HTTP_${code}: ${hint}`,code:`HTTP_${code}`}}));
         return;
       }
       const data = await res.json();
@@ -539,13 +543,17 @@ export default function Page(){
       const res = await fetch("/api/ai", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ type:"read_receipts_sync", since:"2026/01/01" })
-      });
+      }).catch(netErr=>{throw Object.assign(new Error(netErr.message),{name:"TypeError",code:"NETWORK"});});
       if(!res.ok){
         const errData = await res.json().catch(()=>({}));
-        const code = errData.errorCode||String(res.status);
-        const msg = `HTTP_${code}: ${errData.errorMessage||res.statusText||"Error de red"}`;
-        setSyncStatus(p=>({...p,acuses:{state:"error",ts:startTs,msg,code}}));
-        addSchedLog("acuses","error",msg,code);
+        const code = String(errData.errorCode||res.status);
+        const hint = res.status===400?"Config servidor — verificar route.js":
+                     res.status===401||res.status===403?"Sin autorización Google":
+                     res.status>=500?"Error interno del servidor":
+                     errData.errorMessage||res.statusText||"Error de red";
+        const msg = `HTTP_${code}: ${hint}`;
+        setSyncStatus(p=>({...p,acuses:{state:"error",ts:startTs,msg,code:`HTTP_${code}`}}));
+        addSchedLog("acuses","error",msg,`HTTP_${code}`);
         return;
       }
       const data = await res.json();
@@ -737,6 +745,16 @@ export default function Page(){
         })
       });
       const data = await res.json();
+      if(data.warning==="NO_GOOGLE_CREDENTIALS"){
+        setSyncStatus(p=>({...p,drive:{state:"warn",ts:new Date().toISOString(),msg:"Sin credenciales Google — configura GOOGLE_REFRESH_TOKEN en Vercel"}}));
+        setSyncingDrive(false);
+        return;
+      }
+      if(data.error){
+        setSyncStatus(p=>({...p,drive:{state:"error",ts:new Date().toISOString(),msg:`${data.errorCode}: ${data.errorMessage}`,code:data.errorCode}}));
+        setSyncingDrive(false);
+        return;
+      }
       let updates;
       try { updates = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
       catch { updates = []; }
@@ -765,7 +783,7 @@ export default function Page(){
         const nProj=updates.length;
         setSyncStatus(p=>({...p,drive:{state:"ok",ts:new Date().toISOString(),msg:`✓ ${nProj} proyecto(s) actualizados desde Drive`}}));
       } else {
-        setSyncStatus(p=>({...p,drive:{state:"warn",ts:new Date().toISOString(),msg:"Drive conectado pero sin datos nuevos"}}));
+        setSyncStatus(p=>({...p,drive:{state:"warn",ts:new Date().toISOString(),msg:"Drive: sin cambios desde última sincronización"}}));
       }
     } catch(e){
       console.error("Drive sync error", e);
@@ -885,15 +903,27 @@ export default function Page(){
         })
       });
       const data = await res.json();
+      // Si el servidor retorna warning (ej: sin credenciales), manejarlo
+      if(data.warning==="NO_GOOGLE_CREDENTIALS"){
+        setSyncStatus(p=>({...p,gmail:{state:"warn",ts:new Date().toISOString(),msg:"Sin credenciales Google — configura GOOGLE_REFRESH_TOKEN en Vercel"}}));
+        setScanningGmail(false);
+        return;
+      }
+      if(data.error){
+        setSyncStatus(p=>({...p,gmail:{state:"error",ts:new Date().toISOString(),msg:`${data.errorCode}: ${data.errorMessage}`,code:data.errorCode}}));
+        setScanningGmail(false);
+        return;
+      }
       let found;
       try { found = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
       catch { found = []; }
 
+      // newFollows declarado FUERA del if para evitar ReferenceError
+      let newFollows = [];
       if(Array.isArray(found) && found.length > 0){
-        // Agregar correos que requieren acción como nuevos seguimientos
-        const newFollows = found
+        newFollows = found
           .filter(m => m.requiresResponse && m.type !== "informativo")
-          .filter(m => !gf.find(f => f.threadUrl?.includes(m.threadId||m.messageId)))
+          .filter(m => !gf.find(f => f.threadUrl?.includes(m.threadId||m.messageId||"")))
           .map(m => ({
             id: "scan_"+m.messageId,
             projectId: m.projectId||"",
@@ -904,7 +934,7 @@ export default function Page(){
             sentDate: m.date||new Date().toISOString().slice(0,10),
             daysPending: Math.floor((Date.now()-new Date(m.date||Date.now()).getTime())/86400000),
             status: "pendiente",
-            threadUrl: m.emailUrl||"https://mail.google.com/mail/u/0/#inbox/"+m.messageId,
+            threadUrl: m.emailUrl||"https://mail.google.com/mail/u/0/#inbox/"+(m.messageId||""),
             autoDetected: true,
           }));
         if(newFollows.length > 0) saveGf([...gf, ...newFollows]);
@@ -914,7 +944,7 @@ export default function Page(){
       S.set("sp_last_scan", now);
       const nNew = newFollows.length;
       const nFound = Array.isArray(found)?found.length:0;
-      setSyncStatus(p=>({...p,gmail:{state:"ok",ts:now,msg:`✓ ${nFound} correos encontrados${nNew>0?` · ${nNew} nuevo(s) seguimiento(s)`:""}`}}));
+      setSyncStatus(p=>({...p,gmail:{state:"ok",ts:now,msg:`✓ ${nFound} correos · ${nNew>0?`${nNew} nuevo(s) seguimiento(s)`:"sin nuevos"}`}}));
     } catch(e){
       console.error("Gmail scan error", e);
       setSyncStatus(p=>({...p,gmail:{state:"error",ts:new Date().toISOString(),msg:`Error: ${e.message}`,code:"GMAIL_EXCEPTION"}}));
