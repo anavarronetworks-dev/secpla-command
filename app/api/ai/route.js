@@ -1,80 +1,86 @@
 /**
- * SECPLA Command — API Route v4.0
+ * SECPLA Command — API Route v5.0
  * app/api/ai/route.js
  *
- * HANDLERS:
- *   chat              → Asistente IA contextual
- *   summary           → Resumen ejecutivo de proyecto
- *   licit             → Consulta Mercado Público
- *   doc               → Análisis PDF/imagen
- *   gmail_scan        → Bandeja: detecta correos que requieren atención
- *                       Filtra automáticamente: comunicaciones@recoleta.cl
- *   clock_sync        → Reloj control desde Gmail (BionicVision)
- *   convenio_track    → Estado y plazos de convenios
- *   cotizaciones_track → Tracking cotizaciones SNSM 2025 por empresa
- *   health            → Estado de servicios
+ * OPTIMIZACIONES v5:
+ *   • gmail_scan:         sin Claude → clasificación JS pura (0 tokens)
+ *   • clock_sync:         incluye ayer + días recientes, sin Claude
+ *   • cotizaciones_track: desde 2024/12/01 (cubre todo el historial)
+ *   • Todo Gmail: metadata-only (snippets), sin leer body completo
+ *   • Claude solo para: chat, summary, licit, doc
  */
 
 import Anthropic from "@anthropic-ai/sdk";
 
-// ── Anthropic client ─────────────────────────────────────────────────────────
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ── Constantes ───────────────────────────────────────────────────────────────
-const CLOCK_SENDER = "enviomarcaciones@mg.bionicvision.cl";
-const GMAIL_USER   = "anavarro@recoleta.cl";
+const CLOCK_SENDER  = "enviomarcaciones@mg.bionicvision.cl";
+const GMAIL_USER    = "anavarro@recoleta.cl";
+const COTIZ_SINCE   = "2024/12/01";  // historial completo desde dic 2024
 
-// Remitentes a IGNORAR siempre (spam, boletines, comunicaciones masivas)
-const IGNORED_SENDERS = [
-  "comunicaciones@recoleta.cl",
-  "noreply@",
-  "no-reply@",
-  "newsletter@",
-  "boletin@",
-  "notificaciones@mercadopublico.cl",
+// Remitentes ignorados (no generan seguimiento)
+const IGNORE = [
+  "comunicaciones@recoleta.cl", "noreply@", "no-reply@",
+  "newsletter@", "boletin@", "notificaciones@mercadopublico.cl",
+  "donotreply@", "mailer@", "marketing@",
 ];
 
-// Empresas cotización SNSM 2025
-const COTIZACION_EMPRESAS = [
-  { name: "Scharfstein",   domain: "scharfstein.cl",  contacto: "Sebastián Merino / Cristobal Cruz", email: "smerino@scharfstein.cl" },
-  { name: "Bionic Vision", domain: "bionicvision.cl", contacto: "Letxy Valero / Rocío Ponce",        email: "lvalero@bionicvision.cl" },
-  { name: "Grupo VSM",     domain: "grupovsm.cl",     contacto: "Comunicaciones",                    email: "comunicaciones@grupovsm.cl" },
-  { name: "RockTech",      domain: "rocktechla.com",  contacto: "Fabiana Rifo / Sergio",             email: "fabiana.rifo@rocktechla.com" },
-  { name: "Securitas",     domain: "securitas.cl",    contacto: "Contacto comercial",                email: "comercial@securitas.cl" },
-  { name: "Prosegur",      domain: "prosegur.com",    contacto: "Ventas empresas",                   email: "ventas.empresas@prosegur.com" },
+// Empresas cotización SNSM 2025 — búsqueda amplia desde dic 2024
+const EMPRESAS = [
+  { name: "Scharfstein",   domains: ["scharfstein.cl"],   kw: ["scharfstein","merino","cristobal cruz"] },
+  { name: "Bionic Vision", domains: ["bionicvision.cl"],  kw: ["bionic","bionicvision","valero","ponce"] },
+  { name: "Grupo VSM",     domains: ["grupovsm.cl"],      kw: ["grupovsm","vsm"] },
+  { name: "RockTech",      domains: ["rocktechla.com"],   kw: ["rocktech","rifo"] },
+  { name: "Securitas",     domains: ["securitas.cl"],     kw: ["securitas"] },
+  { name: "Prosegur",      domains: ["prosegur.com","prosegurchile.cl"], kw: ["prosegur"] },
+  { name: "Verkauf",       domains: ["verkauf.cl"],       kw: ["verkauf"] },
+  { name: "Dahua",         domains: ["dahua.com","dahuachile.cl"],       kw: ["dahua"] },
+  { name: "Hikvision",     domains: ["hikvision.com","hikvisionsur.com"], kw: ["hikvision"] },
 ];
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-function extractText(content = []) {
-  return content.filter(c => c.type === "text").map(c => c.text || "").join("");
-}
-function safeJSON(raw, fallback) {
-  try { return JSON.parse((raw || "").replace(/```json|```/g, "").trim()); }
-  catch { return fallback; }
-}
-function sanitize(s, max = 400) {
-  if (typeof s !== "string") return "";
-  return s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "").slice(0, max);
-}
-function isIgnoredSender(from = "") {
-  const f = from.toLowerCase();
-  return IGNORED_SENDERS.some(ig => f.includes(ig.toLowerCase()));
+// Palabras clave de proyectos (para clasificar correos sin Claude)
+const PROJ_PATTERNS = {
+  p1: [/6ta comisa/i, /habilitaci.n tecnol/i, /empalme el.ctrico/i, /enel/i],
+  p2: [/snsm25/i, /snsm2025/i, /snsm25-stp/i, /integraci.n c.maras/i, /sievap/i],
+  p3: [/centros culturales/i, /cdp n.79/i, /cctv.*cultural/i],
+  p4: [/uv.?32/i, /uv n.?32/i, /bnup/i, /40066179/i],
+  p5: [/sala.*monitoreo/i, /consistorial/i, /torre telecom/i, /trato directo/i],
+};
+
+function detectProj(text) {
+  for (const [pid, pats] of Object.entries(PROJ_PATTERNS)) {
+    if (pats.some(p => p.test(text))) return pid;
+  }
+  return null;
 }
 
-// ── Timeout fetch ────────────────────────────────────────────────────────────
-async function fetchT(url, opts = {}, ms = 15000) {
+// ── Utils ────────────────────────────────────────────────────────────────────
+function extractText(c = []) { return c.filter(x => x.type === "text").map(x => x.text || "").join(""); }
+function safeJSON(s, d) { try { return JSON.parse((s || "").replace(/```json|```/g, "").trim()); } catch { return d; } }
+function san(s, n = 300) { return typeof s === "string" ? s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "").slice(0, n) : ""; }
+function parseTs(d) { try { return new Date(d).getTime() || 0; } catch { return 0; } }
+function isIgnored(from) { const f = from.toLowerCase(); return IGNORE.some(i => f.includes(i)); }
+function daysAgo(d) { return Math.round((Date.now() - parseTs(d)) / 86400000); }
+function isoYMD(d) { return d.toISOString().slice(0, 10); }
+function prevWorkday() {
+  const d = new Date(); d.setHours(12, 0, 0, 0);
+  do { d.setDate(d.getDate() - 1); } while (d.getDay() === 0 || d.getDay() === 6);
+  return isoYMD(d);
+}
+
+// ── Fetch con timeout ────────────────────────────────────────────────────────
+async function fetchT(url, opts = {}, ms = 14000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try { return await fetch(url, { ...opts, signal: ctrl.signal }); }
   finally { clearTimeout(t); }
 }
 
-// ── OAuth2 con cache y retry ─────────────────────────────────────────────────
+// ── OAuth2 ──────────────────────────────────────────────────────────────────
 let _tok = null, _tokExp = 0;
 async function getToken() {
-  const r = process.env.GOOGLE_REFRESH_TOKEN;
-  const c = process.env.GOOGLE_CLIENT_ID;
-  const s = process.env.GOOGLE_CLIENT_SECRET;
+  const [r, c, s] = [process.env.GOOGLE_REFRESH_TOKEN, process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET];
   if (!r || !c || !s) return null;
   if (_tok && Date.now() < _tokExp - 120000) return _tok;
   for (let i = 0; i < 3; i++) {
@@ -84,19 +90,18 @@ async function getToken() {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: r, client_id: c, client_secret: s }),
       }, 10000);
-      if (!res.ok) { if (i < 2) { await new Promise(x => setTimeout(x, 1000 * (i + 1))); continue; } return null; }
+      if (!res.ok) { if (i < 2) { await new Promise(x => setTimeout(x, 900 * (i + 1))); continue; } return null; }
       const d = await res.json();
       if (!d.access_token) return null;
-      _tok = d.access_token;
-      _tokExp = Date.now() + (d.expires_in || 3600) * 1000;
+      _tok = d.access_token; _tokExp = Date.now() + (d.expires_in || 3600) * 1000;
       return _tok;
-    } catch { if (i < 2) await new Promise(x => setTimeout(x, 1000 * (i + 1))); }
+    } catch { if (i < 2) await new Promise(x => setTimeout(x, 900 * (i + 1))); }
   }
   return null;
 }
 
-// ── Gmail search ─────────────────────────────────────────────────────────────
-async function gmailSearch(query, max = 50) {
+// ── Gmail search — solo metadata, sin body ────────────────────────────────────
+async function gmailSearch(query, max = 40) {
   const tok = await getToken();
   if (!tok) return { messages: [], error: "NO_GOOGLE_CREDENTIALS" };
   try {
@@ -109,48 +114,44 @@ async function gmailSearch(query, max = 50) {
     if (!ld.messages?.length) return { messages: [], error: null };
 
     const msgs = [];
-    for (let i = 0; i < ld.messages.length; i += 10) {
-      const batch = ld.messages.slice(i, i + 10);
-      const results = await Promise.all(batch.map(async m => {
+    // Batches de 8 con 80ms entre ellos — dentro del límite de cuota Gmail
+    for (let i = 0; i < ld.messages.length; i += 8) {
+      const batch = ld.messages.slice(i, i + 8);
+      const rows = await Promise.all(batch.map(async m => {
         try {
           const mr = await fetchT(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Date`,
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata` +
+            `&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Date`,
             { headers: { Authorization: `Bearer ${tok}` } }, 8000
           );
           if (!mr.ok) return null;
           const msg = await mr.json();
-          const h = {};
-          (msg.payload?.headers || []).forEach(x => { h[x.name] = x.value; });
+          const h = {}; (msg.payload?.headers || []).forEach(x => { h[x.name] = x.value; });
           return {
-            messageId: msg.id,
-            threadId: msg.threadId,
-            subject: sanitize(h.Subject || "", 300),
-            from: sanitize(h.From || "", 200),
-            to: sanitize(h.To || "", 300),
-            date: h.Date || "",
-            snippet: sanitize(msg.snippet || "", 400),
+            messageId: msg.id, threadId: msg.threadId,
+            subject: san(h.Subject || "", 250),
+            from:    san(h.From    || "", 180),
+            to:      san(h.To      || "", 180),
+            date:    h.Date || "",
+            snippet: san(msg.snippet || "", 350),
           };
         } catch { return null; }
       }));
-      msgs.push(...results.filter(Boolean));
-      if (i + 10 < ld.messages.length) await new Promise(x => setTimeout(x, 80));
+      msgs.push(...rows.filter(Boolean));
+      if (i + 8 < ld.messages.length) await new Promise(x => setTimeout(x, 80));
     }
     return { messages: msgs, error: null };
-  } catch (e) {
-    return { messages: [], error: "GMAIL_EXCEPTION", detail: e.message };
-  }
+  } catch (e) { return { messages: [], error: "GMAIL_EXCEPTION", detail: e.message }; }
 }
 
-// ── Claude analyze ───────────────────────────────────────────────────────────
-async function analyze(system, user, maxTokens = 1200) {
-  const content = user.length > 8000 ? user.slice(0, 7900) + "\n[TRUNCADO]" : user;
+// ── Claude (solo cuando realmente necesario) ──────────────────────────────────
+async function callClaude(system, user, maxTok = 800) {
+  const input = user.length > 6000 ? user.slice(0, 5900) + "\n[TRUNCADO]" : user;
   for (let i = 0; i < 2; i++) {
     try {
       const r = await client.messages.create({
-        model: "claude-sonnet-4-5",
-        max_tokens: maxTokens,
-        system,
-        messages: [{ role: "user", content }],
+        model: "claude-sonnet-4-5", max_tokens: maxTok,
+        system, messages: [{ role: "user", content: input }],
       });
       return extractText(r.content);
     } catch (e) {
@@ -160,122 +161,122 @@ async function analyze(system, user, maxTokens = 1200) {
   }
 }
 
-// ── Parse date ────────────────────────────────────────────────────────────────
-function parseDate(d) { try { return new Date(d).getTime(); } catch { return 0; } }
-
 // ── HANDLERS ─────────────────────────────────────────────────────────────────
 
+// chat — Claude con contexto mínimo
 async function handleChat({ messages, context, follows }) {
-  if (!Array.isArray(messages)) return { text: "Error: messages inválido" };
+  if (!Array.isArray(messages)) return { text: "messages inválido" };
   const res = await client.messages.create({
-    model: "claude-sonnet-4-5",
-    max_tokens: 1000,
-    system: `Eres el Asistente SECPLA de la Municipalidad de Recoleta. Apoyas a Alexis Navarro.
-Español, directo, ejecutivo. Negritas para datos clave. Montos en CLP completos.
-CARTERA:\n${context || "—"}\nSEGUIMIENTOS PENDIENTES:\n${follows || "Ninguno"}\nFECHA: ${new Date().toLocaleDateString("es-CL")}`,
-    messages: messages.slice(-20).map(m => ({ role: m.role, content: m.content })),
+    model: "claude-sonnet-4-5", max_tokens: 900,
+    system: `Asistente SECPLA, Municipalidad Recoleta. Apoyas a Alexis Navarro.
+Directo, en español. Negritas para cifras clave.
+CARTERA:\n${(context || "").slice(0, 2000)}\nSEGUIMIENTOS:\n${(follows || "Ninguno").slice(0, 600)}\nFECHA: ${new Date().toLocaleDateString("es-CL")}`,
+    messages: messages.slice(-14).map(m => ({ role: m.role, content: m.content })),
   });
   return { text: extractText(res.content) };
 }
 
+// summary — Claude con notas del proyecto
 async function handleSummary({ project, notes }) {
-  if (!project?.name) return { text: "Error: proyecto requerido" };
+  if (!project?.name) return { text: "proyecto requerido" };
   const res = await client.messages.create({
-    model: "claude-sonnet-4-5", max_tokens: 600,
-    system: "Genera resumen ejecutivo 3-5 oraciones. Sin títulos ni markdown. Destaca: estado, gestiones recientes, pendientes, próximos pasos.",
-    messages: [{ role: "user", content: `PROYECTO: ${project.name}\nFinanciamiento: ${project.financier} — ${project.program}\nPresupuesto: ${project.budget}\nEtapa: ${project.stage} | Estado: ${project.status}\n\nNOTAS:\n${notes || "Sin notas"}` }],
+    model: "claude-sonnet-4-5", max_tokens: 400,
+    system: "Resumen ejecutivo 3-4 oraciones. Sin markdown. Estado, gestiones, pendientes, próximos pasos.",
+    messages: [{ role: "user", content: `${project.name}\n${project.financier} · ${project.program} · ${project.budget}\n${project.stage} / ${project.status}\n\n${(notes || "").slice(0, 1500)}` }],
   });
   return { text: extractText(res.content) };
 }
 
+// licit — Claude con web_search (único caso justificado)
 async function handleLicit({ licitId }) {
   if (!licitId?.trim()) return { text: '{"estado":"Desconocido"}' };
   const res = await client.messages.create({
-    model: "claude-sonnet-4-5", max_tokens: 800,
+    model: "claude-sonnet-4-5", max_tokens: 600,
     tools: [{ type: "web_search_20250305", name: "web_search" }],
     system: `Busca en mercadopublico.cl. SOLO JSON sin markdown:
-{"estado":"Publicada|En proceso|Cerrada|Adjudicada|Desierta|Revocada|Desconocido","nombre":"","organismo":"","descripcion":"","fechaPublicacion":"YYYY-MM-DD","fechaCierre":"YYYY-MM-DD","fechaAdjudicacion":"YYYY-MM-DD","monto":"","url":""}`,
-    messages: [{ role: "user", content: `Busca licitación: ${sanitize(licitId, 50)}` }],
+{"estado":"Publicada|En proceso|Cerrada|Adjudicada|Desierta|Revocada|Desconocido","nombre":"","descripcion":"","fechaPublicacion":"YYYY-MM-DD","fechaCierre":"YYYY-MM-DD","fechaAdjudicacion":"YYYY-MM-DD","monto":"","url":""}`,
+    messages: [{ role: "user", content: `Licitación: ${san(licitId, 50)}` }],
   });
   return { text: extractText(res.content) };
 }
 
+// doc — Claude Vision (PDF/imagen)
 async function handleDoc({ b64, mediaType, isImg }) {
   if (!b64 || typeof b64 !== "string") return { text: '{"error":"Sin datos"}' };
   const cb = isImg
     ? { type: "image", source: { type: "base64", media_type: mediaType || "image/jpeg", data: b64 } }
     : { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } };
   const res = await client.messages.create({
-    model: "claude-sonnet-4-5", max_tokens: 1200,
-    messages: [{ role: "user", content: [cb, { type: "text", text: `SOLO JSON sin markdown:
-{"title":"","docType":"Convenio|Decreto|Oficio|Resolución|EETT|CDP|Acta|Otro","summary":"2-3 oraciones","codigoProyecto":"","entidadFinancista":"","montoTotal":0,"dates":[{"date":"YYYY-MM-DD","description":""}],"plazoEjecucionFin":"YYYY-MM-DD","plazoConvenioFin":"YYYY-MM-DD","obligations":[""],"tasks":[""],"parties":[""]}` }] }],
+    model: "claude-sonnet-4-5", max_tokens: 900,
+    messages: [{ role: "user", content: [cb, { type: "text", text: `SOLO JSON:
+{"title":"","docType":"Convenio|Decreto|Oficio|Resolución|EETT|CDP|Acta|Otro","summary":"2-3 oraciones","codigoProyecto":"","montoTotal":0,"dates":[{"date":"YYYY-MM-DD","description":""}],"plazoEjecucionFin":"YYYY-MM-DD","plazoConvenioFin":"YYYY-MM-DD","tasks":[""],"parties":[""]}` }] }],
   });
   return { text: extractText(res.content) };
 }
 
-// ── GMAIL SCAN — bandeja inteligente ─────────────────────────────────────────
-// Retorna correos agrupados por thread (el último mensaje de cada hilo)
-// Filtra automáticamente remitentes ignorados
-// Incluye: quién mandó el último correo, asunto, días sin respuesta, URL
+// ── GMAIL SCAN — 0 tokens Claude, JS puro ────────────────────────────────────
+// Se ejecuta cada hora. Devuelve hilos agrupados sin llamar a Claude.
 async function handleGmailScan({ since = "2026/04/01", keywords = [] }) {
-  const kwQuery = keywords.slice(0, 10).map(k => `"${sanitize(k, 40)}"`).join(" OR ");
   const sinceClean = since.replace(/[^0-9/]/g, "");
-
-  // Buscar correos recibidos relevantes
-  const inboxQuery = `to:${GMAIL_USER} after:${sinceClean}${kwQuery ? ` (${kwQuery})` : ""} -from:${CLOCK_SENDER}`;
-  const { messages, error } = await gmailSearch(inboxQuery, 50);
+  const kwQ = keywords.slice(0, 8).map(k => `"${san(k, 40)}"`).join(" OR ");
+  const query = `to:${GMAIL_USER} after:${sinceClean}${kwQ ? ` (${kwQ})` : ""} -from:${CLOCK_SENDER}`;
+  const { messages, error } = await gmailSearch(query, 60);
 
   if (error === "NO_GOOGLE_CREDENTIALS") return { text: "[]", warning: "NO_GOOGLE_CREDENTIALS" };
   if (error) return { text: "[]", error: true, errorCode: error };
-  if (!messages.length) return { text: "[]" };
 
-  // Filtrar remitentes ignorados
-  const filtered = messages.filter(m => !isIgnoredSender(m.from));
-  if (!filtered.length) return { text: "[]" };
+  // Filtrar ignorados
+  const clean = messages.filter(m => !isIgnored(m.from));
+  if (!clean.length) return { text: "[]" };
 
-  // Agrupar por threadId → tomar el más reciente
+  // Agrupar por thread → el mensaje más reciente representa el hilo
   const threadMap = {};
-  for (const m of filtered) {
-    if (!threadMap[m.threadId] || parseDate(m.date) > parseDate(threadMap[m.threadId].date)) {
-      threadMap[m.threadId] = m;
-    }
+  for (const m of clean) {
+    const ts = parseTs(m.date);
+    if (!threadMap[m.threadId] || ts > parseTs(threadMap[m.threadId].date)) threadMap[m.threadId] = m;
   }
 
-  const threads = Object.values(threadMap).sort((a, b) => parseDate(b.date) - parseDate(a.date));
-
-  // Calcular días sin respuesta
-  const now = Date.now();
-  const result = threads.slice(0, 40).map(m => {
-    const msgDate = parseDate(m.date);
-    const daysDiff = Math.round((now - msgDate) / (1000 * 60 * 60 * 24));
-    // Extraer nombre del remitente (sin el email)
-    const fromName = m.from.replace(/<[^>]+>/, "").replace(/"/g, "").trim() || m.from;
-    return {
-      threadId: m.threadId,
-      messageId: m.messageId,
-      subject: m.subject,
-      from: m.from,
-      fromName: fromName,
-      date: m.date,
-      snippet: m.snippet,
-      daysSinceLastMsg: daysDiff,
-      threadUrl: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}`,
-    };
-  });
+  const result = Object.values(threadMap)
+    .sort((a, b) => parseTs(b.date) - parseTs(a.date))
+    .slice(0, 50)
+    .map(m => {
+      const fromName = m.from.replace(/<[^>]+>/, "").replace(/"/g, "").trim() || m.from;
+      const subjectLower = m.subject + " " + m.snippet;
+      return {
+        threadId: m.threadId,
+        messageId: m.messageId,
+        subject: m.subject,
+        fromName,
+        from: m.from,
+        date: m.date,
+        snippet: m.snippet,
+        daysSinceLastMsg: daysAgo(m.date),
+        projectId: detectProj(subjectLower),
+        threadUrl: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}`,
+      };
+    });
 
   return { text: JSON.stringify(result) };
 }
 
-// ── CLOCK SYNC ────────────────────────────────────────────────────────────────
+// ── CLOCK SYNC — verifica ayer y días recientes ───────────────────────────────
+// Lógica: busca marcajes del día de hoy Y del día hábil anterior.
+// Sin Claude — parseo JS del snippet.
 async function handleClockSync() {
+  // Calcular rango: 30 días hacia atrás para capturar todo
+  const sinceDate = new Date(); sinceDate.setDate(sinceDate.getDate() - 30);
+  const sinceStr = isoYMD(sinceDate).replace(/-/g, "/");
+
   const { messages, error } = await gmailSearch(
-    `from:${CLOCK_SENDER} subject:"Aviso de registro de marca en reloj control"`, 120
+    `from:${CLOCK_SENDER} subject:"Aviso de registro de marca en reloj control" after:${sinceStr}`, 80
   );
+
   if (error === "NO_GOOGLE_CREDENTIALS") return { text: "[]", warning: "NO_GOOGLE_CREDENTIALS" };
   if (error) return { text: "[]", error: true, errorCode: error };
 
   const dayMap = {};
   const re = /el día (\d{2}\/\d{2}\/\d{4}).*?(Entrada|Salida)\s+a las\s+(\d{2}:\d{2})/i;
+
   for (const msg of messages) {
     const m = re.exec(msg.snippet || "");
     if (!m) continue;
@@ -286,157 +287,147 @@ async function handleClockSync() {
     if (tipo === "Entrada" && !dayMap[iso].entrada) dayMap[iso].entrada = hora;
     if (tipo === "Salida") dayMap[iso].salida = hora;
   }
-  return { text: JSON.stringify(Object.values(dayMap).sort((a, b) => a.date.localeCompare(b.date))) };
+
+  const todayStr    = isoYMD(new Date());
+  const yesterdayStr = prevWorkday();
+
+  // Indicar explícitamente si hay registro para hoy y ayer
+  const sorted = Object.values(dayMap).sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    text: JSON.stringify(sorted),
+    meta: {
+      today:     todayStr,
+      yesterday: yesterdayStr,
+      hasToday:     !!dayMap[todayStr],
+      hasYesterday: !!dayMap[yesterdayStr],
+    },
+  };
 }
 
-// ── CONVENIO TRACK ────────────────────────────────────────────────────────────
-async function handleConvenioTrack({ projects = [] }) {
-  const today = new Date();
-  const base = projects.map(p => {
-    const fin = p.plazoEjecucionFin || p.deadline || null;
-    const days = fin ? Math.round((new Date(fin) - today) / (1000 * 60 * 60 * 24)) : null;
-    return {
-      projectId: p.id,
-      codigoProyecto: p.codigoProyecto || "",
-      plazoEjecucionFin: fin || "",
-      plazoConvenioFin: p.plazoConvenioFin || "",
-      diasRestantes: days,
-      estado: days === null ? "sin_plazo" : days < 0 ? "vencido" : days < 30 ? "proximo" : "vigente",
-      color: days === null ? "gris" : days < 0 ? "rojo" : days < 30 ? "rojo" : days < 90 ? "amarillo" : "verde",
-    };
-  });
+// ── COTIZACIONES TRACK — desde dic 2024, sin Claude ──────────────────────────
+// Busca enviados y recibidos por empresa usando búsquedas paralelas.
+// Lógica de estado: JS puro → 0 tokens.
+async function handleCotizacionesTrack() {
+  const tok = await getToken();
+  if (!tok) return { text: "[]", warning: "NO_GOOGLE_CREDENTIALS" };
 
-  // Buscar correos relevantes de convenios
-  const { messages, error } = await gmailSearch(
-    `to:${GMAIL_USER} (subject:"modificación plazo" OR subject:"ampliación" OR "SNSM23-STP-0039" OR "SPD" OR "GORE") after:2026/02/01`, 15
+  const results = [];
+
+  // Procesar todas las empresas en paralelo (mucho más rápido)
+  const empresaResults = await Promise.all(
+    EMPRESAS.map(async emp => {
+      const domainQ = emp.domains.map(d => `@${d}`).join(" OR ");
+      const kwQ     = emp.kw.map(k => `"${k}"`).join(" OR ");
+
+      // Enviados: desde COTIZ_SINCE
+      const sentQ = `from:${GMAIL_USER} in:sent (${domainQ} OR ${kwQ}) after:${COTIZ_SINCE}`;
+      // Recibidos: respuestas de la empresa
+      const recvQ = `to:${GMAIL_USER} (from:(${domainQ}) OR ${kwQ}) after:${COTIZ_SINCE}`;
+
+      const [sentR, recvR] = await Promise.all([gmailSearch(sentQ, 20), gmailSearch(recvQ, 20)]);
+
+      if (sentR.error === "NO_GOOGLE_CREDENTIALS") return null; // señal para abortar
+
+      const sent = (sentR.messages || []).sort((a, b) => parseTs(b.date) - parseTs(a.date));
+      const recv = (recvR.messages || []).sort((a, b) => parseTs(b.date) - parseTs(a.date));
+
+      const firstSent = sent.length ? sent[sent.length - 1] : null;
+      const lastSent  = sent.length ? sent[0] : null;
+      const lastRecv  = recv.length ? recv[0] : null;
+
+      // Estado: lógica JS — sin Claude
+      let estado = "sin_enviar";
+      let diasSinResp = null;
+      if (sent.length > 0) {
+        const lastSentTs = parseTs(lastSent.date);
+        diasSinResp = daysAgo(lastSent.date);
+        if (lastRecv && parseTs(lastRecv.date) > lastSentTs) {
+          const snip = (lastRecv.snippet || "").toLowerCase();
+          estado = /cotiz|propuesta|oferta|precio|valor|presupuest/.test(snip)
+            ? "cotizacion_recibida" : "respondido";
+        } else {
+          estado = diasSinResp > 14 ? "sin_respuesta_urgente"
+            : diasSinResp > 5  ? "sin_respuesta"
+            : "enviado";
+        }
+      }
+
+      // Timeline completo (enviados + recibidos mezclados)
+      const timeline = [
+        ...sent.map(m => ({ type: "sent", date: m.date, subject: m.subject, url: `https://mail.google.com/mail/u/0/#sent/${m.threadId}` })),
+        ...recv.map(m => ({ type: "recv", date: m.date, subject: m.subject, snippet: m.snippet, url: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}` })),
+      ].sort((a, b) => parseTs(b.date) - parseTs(a.date));
+
+      return {
+        empresa: emp.name,
+        contacto: emp.kw.slice(0, 2).join(" / "),
+        email: emp.domains[0],
+        estado,
+        diasSinResp,
+        totalEnviados: sent.length,
+        totalRecibidos: recv.length,
+        firstSent: firstSent ? { date: firstSent.date, subject: firstSent.subject, url: `https://mail.google.com/mail/u/0/#sent/${firstSent.threadId}` } : null,
+        lastSent:  lastSent  ? { date: lastSent.date,  subject: lastSent.subject,  url: `https://mail.google.com/mail/u/0/#sent/${lastSent.threadId}`  } : null,
+        lastRecv:  lastRecv  ? { date: lastRecv.date,  subject: lastRecv.subject, snippet: lastRecv.snippet, url: `https://mail.google.com/mail/u/0/#inbox/${lastRecv.threadId}` } : null,
+        timeline: timeline.slice(0, 12),
+      };
+    })
   );
 
-  if (error === "NO_GOOGLE_CREDENTIALS" || error || !messages.length) return { text: JSON.stringify(base) };
+  // Si alguna retornó null → no hay credenciales
+  if (empresaResults.some(r => r === null)) return { text: "[]", warning: "NO_GOOGLE_CREDENTIALS" };
 
-  const summary = messages.slice(0, 8).map(m =>
-    `THREAD:${m.threadId} FROM:${m.from} SUBJ:${m.subject} SNIP:${m.snippet?.slice(0, 80)}`
-  ).join("\n");
-
-  const upd = safeJSON(await analyze(
-    `Detecta modificaciones de plazo en estos correos. Proyectos: ${projects.map(p => `${p.id}(${p.codigoProyecto || "—"})`).join(", ")}
-SOLO JSON array: [{"projectId":"","modificacion":"descripcion breve","estado":"en_tramite|aprobada","emailUrl":"https://mail.google.com/mail/u/0/#inbox/THREADID"}]`,
-    summary, 600
-  ), []);
-
-  for (const u of (Array.isArray(upd) ? upd : [])) {
-    const b = base.find(x => x.projectId === u.projectId);
-    if (b) { b.modificacion = u.modificacion; b.emailUrl = u.emailUrl; }
-  }
-  return { text: JSON.stringify(base) };
+  return { text: JSON.stringify(empresaResults) };
 }
 
-// ── COTIZACIONES TRACK ─────────────────────────────────────────────────────────
-async function handleCotizacionesTrack() {
-  const results = [];
-  for (const emp of COTIZACION_EMPRESAS) {
-    const sentQ = `from:${GMAIL_USER} in:sent (to:@${emp.domain} OR ${emp.contacto.split("/")[0].trim()}) after:2026/03/01`;
-    const recvQ = `to:${GMAIL_USER} from:@${emp.domain} after:2026/03/01`;
-
-    const [sentR, recvR] = await Promise.all([gmailSearch(sentQ, 10), gmailSearch(recvQ, 10)]);
-
-    if (sentR.error === "NO_GOOGLE_CREDENTIALS") return { text: "[]", warning: "NO_GOOGLE_CREDENTIALS" };
-
-    const sent = (sentR.messages || []).sort((a, b) => parseDate(b.date) - parseDate(a.date));
-    const recv = (recvR.messages || []).sort((a, b) => parseDate(b.date) - parseDate(a.date));
-
-    const lastSent = sent[0];
-    const firstSent = sent[sent.length - 1];
-    const lastRecv = recv[0];
-
-    let estado = "sin_enviar";
-    let diasSinResp = null;
-    if (sent.length > 0) {
-      const lastSentTs = parseDate(lastSent?.date);
-      diasSinResp = Math.round((Date.now() - lastSentTs) / (1000 * 60 * 60 * 24));
-      estado = lastRecv && parseDate(lastRecv.date) > lastSentTs
-        ? ((lastRecv.snippet || "").toLowerCase().match(/cotiz|propuesta|oferta/) ? "cotizacion_recibida" : "respondido")
-        : diasSinResp > 7 ? "sin_respuesta_urgente" : diasSinResp > 3 ? "sin_respuesta" : "enviado";
-    }
-
-    results.push({
-      empresa: emp.name,
-      contacto: emp.contacto,
-      email: emp.email,
-      estado,
-      diasSinResp,
-      totalEnviados: sent.length,
-      totalRecibidos: recv.length,
-      firstSent: firstSent ? { date: firstSent.date, subject: firstSent.subject, url: `https://mail.google.com/mail/u/0/#sent/${firstSent.threadId}` } : null,
-      lastSent: lastSent ? { date: lastSent.date, subject: lastSent.subject, url: `https://mail.google.com/mail/u/0/#sent/${lastSent.threadId}` } : null,
-      lastRecv: lastRecv ? { date: lastRecv.date, subject: lastRecv.subject, snippet: lastRecv.snippet, url: `https://mail.google.com/mail/u/0/#inbox/${lastRecv.threadId}` } : null,
-      timeline: [
-        ...sent.slice(0, 5).map(m => ({ type: "sent", date: m.date, subject: m.subject, url: `https://mail.google.com/mail/u/0/#sent/${m.threadId}` })),
-        ...recv.slice(0, 5).map(m => ({ type: "recv", date: m.date, subject: m.subject, snippet: m.snippet, url: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}` })),
-      ].sort((a, b) => parseDate(b.date) - parseDate(a.date)),
-    });
-  }
-  return { text: JSON.stringify(results) };
-}
-
+// health
 async function handleHealth() {
-  const hasAnt = !!process.env.ANTHROPIC_API_KEY;
+  const hasA = !!process.env.ANTHROPIC_API_KEY;
   const hasG = !!(process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
-  let gOk = false;
-  if (hasG) { try { gOk = !!(await getToken()); } catch {} }
-  return { text: JSON.stringify({ status: hasAnt && gOk ? "healthy" : "degraded", ts: new Date().toISOString(), anthropic: hasAnt ? "ok" : "missing", google: hasG ? (gOk ? "ok" : "auth_failed") : "missing" }) };
+  let gOk = false; if (hasG) { try { gOk = !!(await getToken()); } catch {} }
+  return { text: JSON.stringify({ status: hasA && gOk ? "healthy" : "degraded", ts: new Date().toISOString(), anthropic: hasA ? "ok" : "missing", google: gOk ? "ok" : (hasG ? "auth_failed" : "missing") }) };
 }
 
-// ── Rate limiter simple ───────────────────────────────────────────────────────
+// ── Rate limiter ─────────────────────────────────────────────────────────────
 const _rl = {};
-function rateOk(type, max = 10) {
+function rateOk(type, max) {
   const now = Date.now();
   if (!_rl[type]) _rl[type] = [];
   _rl[type] = _rl[type].filter(t => now - t < 60000);
   if (_rl[type].length >= max) return false;
-  _rl[type].push(now);
-  return true;
+  _rl[type].push(now); return true;
 }
 
-// ── Handler registry ──────────────────────────────────────────────────────────
+// ── Registry ─────────────────────────────────────────────────────────────────
 const HANDLERS = {
   chat:               { fn: handleChat,               max: 20 },
   summary:            { fn: handleSummary,            max: 10 },
   licit:              { fn: handleLicit,              max: 5  },
   doc:                { fn: handleDoc,                max: 5  },
-  gmail_scan:         { fn: handleGmailScan,          max: 6  },
-  clock_sync:         { fn: handleClockSync,          max: 8  },
-  convenio_track:     { fn: handleConvenioTrack,      max: 5  },
+  gmail_scan:         { fn: handleGmailScan,          max: 10 },
+  clock_sync:         { fn: handleClockSync,          max: 10 },
   cotizaciones_track: { fn: handleCotizacionesTrack,  max: 4  },
   health:             { fn: handleHealth,             max: 60 },
 };
 
-// ── POST ──────────────────────────────────────────────────────────────────────
 export async function POST(req) {
   let type = "unknown";
   try {
     const body = await req.json();
     type = body?.type || "unknown";
-    if (!type || typeof type !== "string" || type.length > 50)
-      return Response.json({ error: true, errorCode: "INVALID", errorMessage: "type inválido" }, { status: 400 });
-    if (body.mcp_servers)
-      return Response.json({ error: true, errorCode: "FORBIDDEN", errorMessage: "mcp_servers no permitido" }, { status: 400 });
-
-    const handler = HANDLERS[type];
-    if (!handler)
-      return Response.json({ error: true, errorCode: "NOT_FOUND", errorMessage: `Handler '${type}' no existe` }, { status: 400 });
-
-    if (!rateOk(type, handler.max))
-      return Response.json({ error: true, errorCode: "RATE_LIMITED", errorMessage: "Demasiadas solicitudes. Espera 1 minuto." }, { status: 429 });
-
-    const result = await handler.fn(body);
-    return Response.json(result);
+    if (!type || typeof type !== "string" || type.length > 50 || body.mcp_servers)
+      return Response.json({ error: true, errorCode: "INVALID" }, { status: 400 });
+    const h = HANDLERS[type];
+    if (!h) return Response.json({ error: true, errorCode: "NOT_FOUND" }, { status: 400 });
+    if (!rateOk(type, h.max)) return Response.json({ error: true, errorCode: "RATE_LIMITED" }, { status: 429 });
+    return Response.json(await h.fn(body));
   } catch (err) {
-    console.error(`[SECPLA] [${type}]`, err?.message);
-    return Response.json({ text: "", error: true, errorCode: "SERVER_ERROR", errorMessage: err?.message || "Error desconocido" }, { status: 500 });
+    console.error(`[SECPLA][${type}]`, err?.message);
+    return Response.json({ text: "", error: true, errorCode: "SERVER_ERROR", errorMessage: err?.message }, { status: 500 });
   }
 }
 
 export async function GET() {
-  const r = await handleHealth();
-  return Response.json(JSON.parse(r.text));
+  return Response.json(safeJSON((await handleHealth()).text, {}));
 }
