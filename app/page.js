@@ -1,2077 +1,1335 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
-// ── ESCALA GLOBAL DE FUENTE ─────────────────────────────
-const F = (n) => `${Math.round(n * 1.5)}px`;
+/**
+ * SECPLA Command v4.0
+ * Municipalidad de Recoleta — Alexis Navarro
+ *
+ * FEATURES:
+ *   ✓ Dashboard: cartera de proyectos con CRUD completo
+ *   ✓ Bandeja de correos importantes (auto-scan + manual)
+ *     - Omite automáticamente comunicaciones@recoleta.cl y boletines
+ *     - Muestra: quién mandó, título, hace cuántos días, botón Seguir o Descartar
+ *   ✓ Seguimientos activos: correos que necesitas responder
+ *   ✓ Cotizaciones SNSM 2025: tracking por empresa con historial Gmail
+ *   ✓ Reloj Control: entrada/salida + extras acumulados
+ *   ✓ Solicitudes de jefatura
+ *   ✓ SIEVAP countdown
+ *   ✓ Asistente IA contextual
+ *   ✓ Persistencia robusta (auto-save sin botón guardar)
+ *
+ * ELIMINADO (simplificación):
+ *   ✗ Acuses de lectura
+ *   ✗ Integración Google Drive
+ *   ✗ Calendario de reuniones
+ */
 
-// ── helpers ────────────────────────────────────────────
+// ══════════════════════════════════════════════════════
+// UTILIDADES
+// ══════════════════════════════════════════════════════
+const F = n => `${Math.round(n * 1.5)}px`;
 const fCLP = n => !n ? "—" : `$${Math.round(n).toLocaleString("es-CL")}`;
-const fDate = d => d ? new Date(d+"T12:00:00").toLocaleDateString("es-CL",{day:"2-digit",month:"short",year:"numeric"}) : "—";
-const fDateTime = iso => {
-  if(!iso) return "—";
+const fDate = d => d ? new Date(d + "T12:00:00").toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const uid = () => Math.random().toString(36).slice(2, 9);
+
+// ── Persistencia robusta ──────────────────────────────
+// Guarda en localStorage con backup automático.
+// Si el valor principal se corrompe, usa el backup.
+// Los datos NUNCA se pierden salvo que el usuario limpie el navegador.
+const DB_VER = "v4";
+function dbGet(key, def) {
+  if (typeof window === "undefined") return def;
+  const k = `secpla_${DB_VER}_${key}`;
+  const bk = `secpla_bk_${DB_VER}_${key}`;
   try {
-    const d = new Date(iso);
-    return d.toLocaleDateString("es-CL",{day:"2-digit",month:"short",year:"numeric"}) + " " +
-           d.toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"});
-  } catch { return "—"; }
-};
-const uid = () => Math.random().toString(36).slice(2,9);
-
-const STAGES = ["Formulación","Diseño","Licitación","Adjudicación","Ejecución","Recepción","Completado","Archivado"];
-const STATUSES = ["En curso","Pendiente","Detenido","Completado","Con alerta"];
-const FINANCIERS = ["GORE","SPD","Municipal","MININT","FNDR","Otro"];
-const SC = {"En curso":"#3b82f6","Pendiente":"#f59e0b","Detenido":"#ef4444","Completado":"#22c55e","Con alerta":"#f97316"};
-const MPC = {"Publicada":"#059669","En proceso":"#3b82f6","Cerrada":"#f59e0b","Adjudicada":"#7c3aed","Desierta":"#ef4444","Revocada":"#ef4444"};
-const UC = {"crítica":"#ef4444","alta":"#f97316","media":"#f59e0b"};
-const UL = {"crítica":"🔴","alta":"🟠","media":"🟡"};
-
-// ── KEYWORDS por proyecto para clasificación auto ──────
-// Usados para mapear correos/eventos de Gmail y Calendar
-const PROJ_KEYWORDS = {
-  p1: ["6ta comisaría","6ta comisaria","comisaría","comisaria","habilitación tecnológica","1431841-10-LE25","empalme eléctrico","ENEL"],
-  p2: ["SNSM23-STP-0039","SNSM2025","SNSM25","integración cámaras","televigilancia","bionic vision","scharfstein","rocktech","grupovsm","ficha modificación plazo","SNSM25-STP-0113","sievap"],
-  p3: ["CCTV centros culturales","centros culturales","CDP N°79","licitación CCTV"],
-  p4: ["UV32","UV N°32","cámaras UV","BNUP","adjudicación UV","40066179"],
-  p5: ["sala de monitoreo","consistorial","trato directo","securitas","prosegur","torre telecom","1431841-10-B226","sala monitoreo"],
-};
-
-// Detecta a qué proyecto pertenece un texto
-const detectProject = (text="") => {
-  const t = text.toLowerCase();
-  for(const [pid, keywords] of Object.entries(PROJ_KEYWORDS)){
-    if(keywords.some(k => t.includes(k.toLowerCase()))) return pid;
+    const raw = localStorage.getItem(k);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed != null) return parsed;
+    }
+  } catch {}
+  try {
+    const raw = localStorage.getItem(bk);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed != null) {
+        console.warn(`[SECPLA] Recuperando backup: ${key}`);
+        try { localStorage.setItem(k, raw); } catch {}
+        return parsed;
+      }
+    }
+  } catch {}
+  return def;
+}
+function dbSet(key, value) {
+  if (typeof window === "undefined") return;
+  const k = `secpla_${DB_VER}_${key}`;
+  const bk = `secpla_bk_${DB_VER}_${key}`;
+  try {
+    const prev = localStorage.getItem(k);
+    if (prev) { try { localStorage.setItem(bk, prev); } catch {} }
+    localStorage.setItem(k, JSON.stringify(value));
+  } catch (e) {
+    console.error(`[SECPLA] Error guardando ${key}:`, e);
   }
-  return null;
+}
+
+// Hook: estado persistente con auto-save y sync entre tabs
+function useDB(key, init) {
+  const [val, setVal] = useState(() => dbGet(key, typeof init === "function" ? init() : init));
+  const set = useCallback(v => {
+    setVal(prev => {
+      const next = typeof v === "function" ? v(prev) : v;
+      dbSet(key, next);
+      return next;
+    });
+  }, [key]);
+  // Sync entre pestañas
+  useEffect(() => {
+    const h = e => {
+      if (e.key === `secpla_${DB_VER}_${key}` && e.newValue) {
+        try { setVal(JSON.parse(e.newValue)); } catch {}
+      }
+    };
+    window.addEventListener("storage", h);
+    return () => window.removeEventListener("storage", h);
+  }, [key]);
+  return [val, set];
+}
+
+// ── Fetch con auto-log de errores ─────────────────────
+async function apiFetch(body, source) {
+  try {
+    const res = await fetch("/api/ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.clone().json().catch(() => ({}));
+      const code = err.errorCode || `HTTP_${res.status}`;
+      const msg = err.errorMessage || res.statusText;
+      console.error(`[SECPLA][${source}] ${code}: ${msg}`);
+      return { ok: false, code, msg, data: err };
+    }
+    const data = await res.json();
+    return { ok: true, data };
+  } catch (e) {
+    console.error(`[SECPLA][${source}] FETCH_ERROR:`, e.message);
+    return { ok: false, code: "NETWORK", msg: e.message, data: {} };
+  }
+}
+
+// ── Parse JSON seguro ─────────────────────────────────
+function parseJSON(raw, def) {
+  try { return JSON.parse((raw || "").replace(/```json|```/g, "").trim()); }
+  catch { return def; }
+}
+
+// ══════════════════════════════════════════════════════
+// CONSTANTES
+// ══════════════════════════════════════════════════════
+const SC = { "En curso": "#3b82f6", "Pendiente": "#f59e0b", "Detenido": "#ef4444", "Completado": "#22c55e", "Con alerta": "#f97316" };
+const MPC = { "Publicada": "#059669", "En proceso": "#3b82f6", "Cerrada": "#f59e0b", "Adjudicada": "#7c3aed", "Desierta": "#ef4444", "Revocada": "#ef4444" };
+const UC = { "crítica": "#ef4444", "alta": "#f97316", "media": "#f59e0b" };
+const UL = { "crítica": "🔴", "alta": "🟠", "media": "🟡" };
+const STAGES = ["Formulación", "Diseño", "Licitación", "Adjudicación", "Ejecución", "Recepción", "Completado", "Archivado"];
+const STATUSES = ["En curso", "Pendiente", "Detenido", "Completado", "Con alerta"];
+const FINANCIERS = ["GORE", "SPD", "Municipal", "MININT", "FNDR", "Otro"];
+const MONTHS_ES = ["", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+const MONTHS_FULL = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+const PROJ_KW = {
+  p1: ["6ta comisaría", "habilitación tecnológica", "1431841-10-LE25", "empalme eléctrico", "ENEL"],
+  p2: ["SNSM23-STP-0039", "SNSM2025", "SNSM25", "SNSM25-STP-0113", "integración cámaras", "sievap"],
+  p3: ["CCTV centros culturales", "centros culturales", "CDP N°79"],
+  p4: ["UV32", "UV N°32", "cámaras UV", "BNUP", "40066179"],
+  p5: ["sala de monitoreo", "consistorial", "torre telecom", "trato directo"],
 };
 
-// ── SOLICITUDES DE JEFATURA ────────────────────────────
-const BOSS_INIT = [
-  {id:"b1",from:"María Paz Juica",email:"mjuica@recoleta.cl",projectId:"p5",urgency:"crítica",
-   task:"Preparar presentación diagnóstico de las 3 salas de cámaras (pros y contras) para reunión Alcaldía el miércoles 15 abril 13:00 hrs.",
-   requestDate:"2026-04-10",status:"pendiente",
-   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d790219c18994c"},
-  {id:"b2",from:"María Paz Juica",email:"mjuica@recoleta.cl",projectId:"p2",urgency:"alta",
-   task:"Revisar y subsanar observaciones del proyecto código SNSM25-STP-0113. Plazo máximo: 15 días desde el 9 abril.",
-   requestDate:"2026-04-09",status:"pendiente",
-   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d743c80d701dbc"},
-  {id:"b3",from:"María Paz Juica",email:"mjuica@recoleta.cl",projectId:"p2",urgency:"alta",
-   task:"Confirmar recepción de Certificados BNUP del proyecto SNSM2025. Solo se tienen Certificados de Número. Los BNUP aún no han llegado según tu respuesta del 13 abr.",
-   requestDate:"2026-04-13",status:"pendiente",
-   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d871327ac64df4"},
-  {id:"b4",from:"María Paz Juica",email:"mjuica@recoleta.cl",projectId:"p5",urgency:"media",
-   task:"Gestionar Decreto que modifica Comisión Evaluadora para poder procesar el Informe de licitación desierta Sala Monitoreo.",
-   requestDate:"2026-04-10",status:"pendiente",
-   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d3f351893aaf74"},
-  {id:"b5",from:"María Paz Juica",email:"mjuica@recoleta.cl",projectId:"p1",urgency:"media",
-   task:"Enviar antecedentes corregidos 6ta Comisaría con SECPLA como ITS del proyecto según indicación de Administración.",
-   requestDate:"2026-04-06",status:"completado",completedNote:"Entregado el 8 abril con proyecto completo.",
-   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d1c4a8a983aa5c"},
-  {id:"b6",from:"María Paz Juica",email:"mjuica@recoleta.cl",projectId:"p3",urgency:"media",
-   task:"Dejar documentos licitación CCTV Centros Culturales en carpeta 01_Licitacion y completar planilla LICITACIONES_Seguimiento.",
-   requestDate:"2026-03-25",status:"completado",completedNote:"Subidos el mismo día 25 marzo.",
-   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d2665ac1e575ac"},
-  {id:"b7",from:"Grace Arcos",email:"garcos@recoleta.cl",projectId:"p5",urgency:"alta",
-   task:"Reunión Opciones Sala de Televigilancia — miércoles 15 abril 13:00 hrs. Llevar diagnóstico de las 3 opciones según solicitud de María Paz.",
-   requestDate:"2026-04-08",status:"pendiente",
-   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d6dc78c627480e"},
-  {id:"b8",from:"Grace Arcos",email:"garcos@recoleta.cl",projectId:"p1",urgency:"alta",
-   task:"Seguimiento empalme eléctrico 6ta Comisaría — reunión miércoles 15 abril. Grace confirmó asistencia. DOM gestiona con ENEL con documentación del Alcalde.",
-   requestDate:"2026-04-13",status:"pendiente",
-   threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d892c228474fcc"},
+const isFri = d => new Date(d + "T12:00:00").getDay() === 5;
+const jornMin = d => isFri(d) ? 480 : 540;
+const toMin = t => { if (!t) return null; const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+const fMin = m => { const a = Math.abs(m); const h = Math.floor(a / 60); const mn = a % 60; return h > 0 ? `${h}h ${mn}m` : `${mn}m`; };
+
+// ══════════════════════════════════════════════════════
+// DATOS SEMILLA
+// ══════════════════════════════════════════════════════
+const INIT_PROJECTS = [
+  { id: "p1", name: "Servicio de Habilitación Tecnológica 6ta Comisaría", budget: 40000000, stage: "Formulación", status: "En curso", deadline: "", financier: "SPD", program: "FNSP", desc: "Habilitación tecnológica sala de televigilancia Sexta Comisaría de Carabineros. ID: 1431841-10-LE25. Pendiente ITS y empalme eléctrico ENEL.", notes: "", aiSummary: "", licitId: "", licitData: null, licitChecked: "", docs: [], emails: [], tasks: [] },
+  { id: "p2", name: "Integración de Cámaras de Televigilancia en la Comuna de Recoleta", budget: 100000000, stage: "Licitación", status: "En curso", deadline: "", financier: "SPD", program: "SNSM 2025", codigoProyecto: "SNSM25-STP-0113", codigoSIGE: "22004928", desc: "7 postaciones galvanizadas 15m, PTZ, reconocimiento facial, ANPR. Ficha modificación plazo enviada a SPD.", notes: "", aiSummary: "", licitId: "", licitData: null, licitChecked: "", docs: [], emails: [], tasks: [] },
+  { id: "p3", name: "Sistemas de CCTV, Centros Culturales", budget: 26000000, stage: "Licitación", status: "En curso", deadline: "", financier: "SPD", program: "FNSP", codigoProyecto: "CDP N°79", desc: "Sistema CCTV centros culturales. CDP N°79 emitido. Pendiente publicación Mercado Público.", notes: "", aiSummary: "", licitId: "", licitData: null, licitChecked: "", docs: [], emails: [], tasks: [] },
+  { id: "p4", name: "Cámaras de Televigilancia UV N°32", budget: 914371153, stage: "Adjudicación", status: "En curso", deadline: "2026-04-30", financier: "GORE RM", program: "FNDR", codigoProyecto: "BIP 40066179-0", desc: "Cámaras vigilancia urbana. Adjudicación 30 abril. Pendiente BNUP.", notes: "", aiSummary: "", licitId: "", licitData: null, licitChecked: "", docs: [], emails: [], tasks: [] },
+  { id: "p5", name: "Habilitación Sala de Monitoreo Edificio Consistorial", budget: 100000000, stage: "Licitación", status: "Con alerta", deadline: "2026-06-30", financier: "SPD", program: "SNSM 2023", codigoProyecto: "SNSM23-STP-0039 / SNSM23-CMP-0010", codigoSIGE: "21460117", desc: "LP25 desierta, LP26 revocada. En trato directo.", notes: "", aiSummary: "", licitId: "1431841-68-LP25", licitData: null, licitChecked: "", docs: [], emails: [], tasks: [], convenio: { plazoEjecucionFin: "2026-06-30", plazoConvenioFin: "2026-09-30", modificaciones: [{ tipo: "Mod. técnica intraítem", oficio: "N°1258 SPD", aprobacion: "2025-05-20", estado: "aprobada" }, { tipo: "Ampliación plazo 13 meses", oficio: "N°2321 SPD", aprobacion: "2025-09-04", estado: "aprobada" }] } },
 ];
 
-// ── DÍAS CORRIDOS SIEVAP ───────────────────────────────
+const INIT_BOSS = [
+  { id: "b1", from: "María Paz Juica", projectId: "p5", urgency: "crítica", task: "Presentación diagnóstico 3 salas de cámaras para reunión Alcaldía.", requestDate: "2026-04-10", status: "pendiente", threadUrl: "https://mail.google.com/a/recoleta.cl/#all/19d790219c18994c" },
+  { id: "b2", from: "María Paz Juica", projectId: "p2", urgency: "alta", task: "Subsanar observaciones SNSM25-STP-0113. Plazo 15 días desde 9 abril.", requestDate: "2026-04-09", status: "pendiente", threadUrl: "https://mail.google.com/a/recoleta.cl/#all/19d743c80d701dbc" },
+  { id: "b3", from: "María Paz Juica", projectId: "p2", urgency: "alta", task: "Confirmar recepción Certificados BNUP proyecto SNSM2025.", requestDate: "2026-04-13", status: "pendiente", threadUrl: "https://mail.google.com/a/recoleta.cl/#all/19d871327ac64df4" },
+  { id: "b4", from: "María Paz Juica", projectId: "p5", urgency: "media", task: "Gestionar Decreto modifica Comisión Evaluadora — licitación desierta Sala Monitoreo.", requestDate: "2026-04-10", status: "pendiente", threadUrl: "https://mail.google.com/a/recoleta.cl/#all/19d3f351893aaf74" },
+  { id: "b5", from: "María Paz Juica", projectId: "p1", urgency: "media", task: "Antecedentes corregidos 6ta Comisaría con SECPLA como ITS.", requestDate: "2026-04-06", status: "completado", completedNote: "Entregado el 8 abril.", threadUrl: "https://mail.google.com/a/recoleta.cl/#all/19d1c4a8a983aa5c" },
+  { id: "b7", from: "Grace Arcos", projectId: "p5", urgency: "alta", task: "Reunión Opciones Sala Televigilancia — 15 abril 13:00 hrs.", requestDate: "2026-04-08", status: "pendiente", threadUrl: "https://mail.google.com/a/recoleta.cl/#all/19d6dc78c627480e" },
+  { id: "b8", from: "Grace Arcos", projectId: "p1", urgency: "alta", task: "Seguimiento empalme eléctrico 6ta Comisaría — reunión 15 abril con ENEL.", requestDate: "2026-04-13", status: "pendiente", threadUrl: "https://mail.google.com/a/recoleta.cl/#all/19d892c228474fcc" },
+];
+
+const INIT_FOLLOWS = [
+  { id: "gf1", projectId: "p5", urgency: "crítica", subject: "2do Llamado Trato Directo — Sala Monitoreo Consistorial", to: "Securitas / Prosegur", context: "2 correos rebotaron. Buscar emails correctos.", sentDate: "2026-04-10", daysPending: 3, status: "activo", threadUrl: "https://mail.google.com/a/recoleta.cl/#all/19d73316aebeb956" },
+  { id: "gf2", projectId: "p5", urgency: "alta", subject: "Factibilidad uso Torre Telecom — Sala Monitoreo", to: "Francisco Moscoso", context: "Pronunciamiento sobre repetidor 5GHz.", sentDate: "2026-04-01", daysPending: 12, status: "activo", threadUrl: "https://mail.google.com/a/recoleta.cl/#all/19d4aa05342a51ac" },
+  { id: "gf3", projectId: "p2", urgency: "alta", subject: "Modificación Plazo SNSM23-STP-0039 — Ficha enviada a SPD", to: "Osvaldo Muñoz (SPD)", context: "Ficha subsanada enviada 7 abril. SPD no ha confirmado.", sentDate: "2026-04-07", daysPending: 6, status: "activo", threadUrl: "https://mail.google.com/a/recoleta.cl/#all/19d1ab5d03fb53ce" },
+  { id: "gf4", projectId: "p3", urgency: "alta", subject: "CCTV Centros Culturales — CDP emitido, iniciar licitación MP", to: "María Paz Juica / Alvaro Porzio", context: "CDP N°79 emitido 1 abril. Pendiente ingreso MP.", sentDate: "2026-04-01", daysPending: 12, status: "activo", threadUrl: "https://mail.google.com/a/recoleta.cl/#all/19d2665ac1e575ac" },
+  { id: "gf5", projectId: "p4", urgency: "media", subject: "Cámaras UV N°32 — Certificados BNUP pendientes", to: "María Paz Juica", context: "Al 13 abril solo Certificados de Número. Adjudicación 30 abril.", sentDate: "2026-04-13", daysPending: 0, status: "activo", threadUrl: "https://mail.google.com/a/recoleta.cl/#all/19d871327ac64df4" },
+];
+
 const SIEVAP_START    = new Date("2026-04-09T00:00:00");
 const SIEVAP_DEADLINE = new Date("2026-04-24T23:59:59");
 const SIEVAP_TOTAL    = 15;
 
-function daysBetween(from, to){
-  return Math.round((to - from) / (1000 * 60 * 60 * 24));
-}
-
-// ── RELOJ CONTROL ─────────────────────────────────────
-const JORNADA_MIN = 9 * 60;
-const isFri = d => new Date(d+"T12:00:00").getDay()===5;
-const jornada = d => isFri(d) ? 480 : 540;
 const ALL_CLOCK = [
-  {date:"2026-01-29",entrada:null,salida:"16:53"},
-  {date:"2026-01-30",entrada:"07:43",salida:"15:46"},
-  {date:"2026-02-04",entrada:"07:48",salida:"17:00"},
-  {date:"2026-02-05",entrada:"07:42",salida:"16:44"},
-  {date:"2026-02-06",entrada:"08:05",salida:"16:13"},
-  {date:"2026-02-09",entrada:"08:15",salida:"17:21"},
-  {date:"2026-02-10",entrada:"08:37",salida:"17:40"},
-  {date:"2026-02-11",entrada:"07:44",salida:"16:56"},
-  {date:"2026-02-12",entrada:"07:44",salida:"16:56"},
-  {date:"2026-02-13",entrada:"08:15",salida:null},
-  {date:"2026-02-16",entrada:"07:40",salida:"17:05"},
-  {date:"2026-02-17",entrada:"07:42",salida:"16:52"},
-  {date:"2026-02-18",entrada:"07:57",salida:"17:04"},
-  {date:"2026-02-19",entrada:"07:26",salida:"16:34"},
-  {date:"2026-02-20",entrada:"07:50",salida:"15:59"},
-  {date:"2026-02-23",entrada:"07:45",salida:"16:50"},
-  {date:"2026-02-24",entrada:"07:49",salida:"16:53"},
-  {date:"2026-02-25",entrada:null,salida:"17:07"},
-  {date:"2026-02-26",entrada:"07:41",salida:"16:54"},
-  {date:"2026-02-27",entrada:"07:54",salida:"16:08"},
-  {date:"2026-03-02",entrada:"08:35",salida:"17:38"},
-  {date:"2026-03-03",entrada:"08:25",salida:"17:41"},
-  {date:"2026-03-04",entrada:"08:29",salida:"17:36"},
-  {date:"2026-03-05",entrada:"08:26",salida:"17:31"},
-  {date:"2026-03-06",entrada:"08:21",salida:"16:28"},
-  {date:"2026-03-09",entrada:"08:24",salida:"17:40"},
-  {date:"2026-03-10",entrada:"08:36",salida:"17:40"},
-  {date:"2026-03-11",entrada:"08:14",salida:"17:27"},
-  {date:"2026-03-12",entrada:"08:34",salida:"17:44"},
-  {date:"2026-03-13",entrada:"08:32",salida:"16:46"},
-  {date:"2026-03-16",entrada:"08:26",salida:"17:29"},
-  {date:"2026-03-17",entrada:"08:21",salida:"17:33"},
-  {date:"2026-03-18",entrada:"08:18",salida:"17:28"},
-  {date:"2026-03-19",entrada:"08:21",salida:"17:25"},
-  {date:"2026-03-20",entrada:"08:16",salida:"16:12"},
-  {date:"2026-03-23",entrada:"08:39",salida:"17:48"},
-  {date:"2026-03-24",entrada:"08:19",salida:"17:24"},
-  {date:"2026-03-25",entrada:"08:27",salida:"17:40"},
-  {date:"2026-03-30",entrada:"08:33",salida:"17:36"},
-  {date:"2026-03-31",entrada:"08:28",salida:"17:33"},
-  {date:"2026-04-01",entrada:"08:31",salida:"17:36"},
-  {date:"2026-04-02",entrada:"08:34",salida:"17:32"},
-  {date:"2026-04-06",entrada:"08:18",salida:"17:25"},
-  {date:"2026-04-07",entrada:"08:42",salida:"18:26"},
-  {date:"2026-04-08",entrada:"08:26",salida:"17:28"},
-  {date:"2026-04-09",entrada:"08:40",salida:"17:41"},
-  {date:"2026-04-10",entrada:"08:21",salida:"16:34"},
-  {date:"2026-04-13",entrada:"08:26",salida:"17:37"},
-  {date:"2026-04-14",entrada:"08:30",salida:"17:36"},
-  {date:"2026-04-15",entrada:"08:24",salida:null}
+  {date:"2026-01-29",e:null,s:"16:53"},{date:"2026-01-30",e:"07:43",s:"15:46"},
+  {date:"2026-02-04",e:"07:48",s:"17:00"},{date:"2026-02-05",e:"07:42",s:"16:44"},
+  {date:"2026-02-06",e:"08:05",s:"16:13"},{date:"2026-02-09",e:"08:15",s:"17:21"},
+  {date:"2026-02-10",e:"08:37",s:"17:40"},{date:"2026-02-11",e:"07:44",s:"16:56"},
+  {date:"2026-02-12",e:"07:44",s:"16:56"},{date:"2026-02-13",e:"08:15",s:null},
+  {date:"2026-02-16",e:"07:40",s:"17:05"},{date:"2026-02-17",e:"07:42",s:"16:52"},
+  {date:"2026-02-18",e:"07:57",s:"17:04"},{date:"2026-02-19",e:"07:26",s:"16:34"},
+  {date:"2026-02-20",e:"07:50",s:"15:59"},{date:"2026-02-23",e:"07:45",s:"16:50"},
+  {date:"2026-02-24",e:"07:49",s:"16:53"},{date:"2026-02-25",e:null,s:"17:07"},
+  {date:"2026-02-26",e:"07:41",s:"16:54"},{date:"2026-02-27",e:"07:54",s:"16:08"},
+  {date:"2026-03-02",e:"08:35",s:"17:38"},{date:"2026-03-03",e:"08:25",s:"17:41"},
+  {date:"2026-03-04",e:"08:29",s:"17:36"},{date:"2026-03-05",e:"08:26",s:"17:31"},
+  {date:"2026-03-06",e:"08:21",s:"16:28"},{date:"2026-03-09",e:"08:24",s:"17:40"},
+  {date:"2026-03-10",e:"08:36",s:"17:40"},{date:"2026-03-11",e:"08:14",s:"17:27"},
+  {date:"2026-03-12",e:"08:34",s:"17:44"},{date:"2026-03-13",e:"08:32",s:"16:46"},
+  {date:"2026-03-16",e:"08:26",s:"17:29"},{date:"2026-03-17",e:"08:21",s:"17:33"},
+  {date:"2026-03-18",e:"08:18",s:"17:28"},{date:"2026-03-19",e:"08:21",s:"17:25"},
+  {date:"2026-03-20",e:"08:16",s:"16:12"},{date:"2026-03-23",e:"08:39",s:"17:48"},
+  {date:"2026-03-24",e:"08:19",s:"17:24"},{date:"2026-03-25",e:"08:27",s:"17:40"},
+  {date:"2026-03-30",e:"08:33",s:"17:36"},{date:"2026-03-31",e:"08:28",s:"17:33"},
+  {date:"2026-04-01",e:"08:31",s:"17:36"},{date:"2026-04-02",e:"08:34",s:"17:32"},
+  {date:"2026-04-06",e:"08:18",s:"17:25"},{date:"2026-04-07",e:"08:42",s:"18:26"},
+  {date:"2026-04-08",e:"08:26",s:"17:28"},{date:"2026-04-09",e:"08:40",s:"17:41"},
+  {date:"2026-04-10",e:"08:21",s:"16:34"},{date:"2026-04-13",e:"08:26",s:"17:37"},
+  {date:"2026-04-14",e:"08:30",s:"17:36"},{date:"2026-04-15",e:"08:24",s:null},
 ];
+// normalize: entrada → e, salida → s
+const normClock = ALL_CLOCK.map(r => ({ date: r.date, entrada: r.e ?? r.entrada ?? null, salida: r.s ?? r.salida ?? null }));
 
-const toMin=t=>{if(!t)return null;const[h,m]=t.split(":").map(Number);return h*60+m;};
-const fMin=m=>{const a=Math.abs(m);const h=Math.floor(a/60);const mn=a%60;return h>0?`${h}h ${mn}m`:`${mn}m`;};
-const MONTHS_ES=["","Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+// ══════════════════════════════════════════════════════
+// COMPONENTES EXTERNOS (fuera de Page → regla hooks React)
+// ══════════════════════════════════════════════════════
 
-const GF_INIT = [
-  {id:"gf4",projectId:"p5",urgency:"crítica",subject:"2do Llamado Trato Directo — Sala Monitoreo Consistorial (2 emails fallidos)",to:"Securitas / Prosegur",context:"Plazo límite 16 abril. 2 correos rebotaron: comercial@securitas.cl (dominio no existe) y ventas.empresas@prosegur.com (usuario desconocido). Hay que encontrar emails correctos de ambas empresas HOY.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d73316aebeb956"},
-  {id:"gf8",projectId:"p5",urgency:"alta",subject:"Factibilidad uso Torre Telecom — Sala Monitoreo Consistorial",to:"Francisco Moscoso (fmoscoso@recoleta.cl)",context:"Solicitud de pronunciamiento y autorización para usar Torre Telecom del edificio consistorial como repetidor 5GHz. Solo llegaron acuses de lectura de Elizabeth Nuñez y Hernan Aravena. Francisco Moscoso no ha respondido en 12 días.",sentDate:"2026-04-01",daysPending:12,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d4aa05342a51ac"},
-  {id:"gf2",projectId:"p2",urgency:"alta",subject:"Modificación Plazo SNSM23-STP-0039 — Ficha subsanada enviada a SPD",to:"Osvaldo Muñoz Vallejos — SPD (omunoz@minsegpublica.gob.cl)",context:"Ficha modificación con observaciones subsanadas enviada el 7 abril. SPD no ha confirmado aprobación ni cierre del SIGE 22004928.",sentDate:"2026-04-07",daysPending:6,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d1ab5d03fb53ce"},
-  {id:"gf3",projectId:"p2",urgency:"alta",subject:"Cotización SNSM2025 — Scharfstein (3er seguimiento sin respuesta)",to:"Sebastian Merino / Cristobal Cruz (smerino@scharfstein.cl)",context:"Cotización solicitada el 11 marzo. 3er seguimiento enviado el 10 abril. Aún sin cotización formal.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19cddd6313f40188"},
-  {id:"gf5",projectId:"p2",urgency:"alta",subject:"Terreno Cotización SNSM2025 — Visita Bionic Vision el 16 abril",to:"Letxy Valero / Rocío Ponce — Bionic Vision (lvalero@bionicvision.cl)",context:"Bionic Vision confirmó visita técnica el jueves 16 abril. Punto de reunión: entrada edificio consistorial 12:00.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19cddcf7f6811369"},
-  {id:"gf9",projectId:"p2",urgency:"media",subject:"Cotización SNSM2025 — Grupo VSM (sin respuesta)",to:"comunicaciones@grupovsm.cl / contacto@grupovsm.cl",context:"Cotización enviada el 10 abril. Sin respuesta aún.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#sent/19d7903232724e7a"},
-  {id:"gf10",projectId:"p2",urgency:"media",subject:"Cotización SNSM2025 — RockTech (sin respuesta)",to:"fabiana.rifo@rocktechla.com / sergio@rocktechla.com",context:"Cotización enviada el 10 abril. Sin respuesta aún.",sentDate:"2026-04-10",daysPending:3,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#sent/19d790b9da51a58a"},
-  {id:"gf1",projectId:"p1",urgency:"alta",subject:"6ta Comisaría — Empalme eléctrico ENEL pendiente (reunión 15 abr)",to:"DOM / Grace Arcos (garcos@recoleta.cl)",context:"DOM se comprometió a gestionar empalme eléctrico con ENEL. Reunión de seguimiento 15 abril.",sentDate:"2026-03-30",daysPending:14,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d3f87fce8e5784"},
-  {id:"gf11",projectId:"p1",urgency:"alta",subject:"6ta Comisaría — Corrección antecedentes: SECPLA como ITS del proyecto",to:"María Paz Juica (mjuica@recoleta.cl)",context:"Entregado el 8 abril. Confirmar si fue aceptado correctamente.",sentDate:"2026-04-08",daysPending:5,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d1c4a8a983aa5c"},
-  {id:"gf6",projectId:"p3",urgency:"alta",subject:"CCTV Centros Culturales — CDP emitido, iniciar licitación en MP",to:"María Paz Juica / Alvaro Porzio (aporzio@recoleta.cl)",context:"CDP N°79 emitido el 1 abril. Pendiente confirmar ingreso a Mercado Público y fecha de publicación.",sentDate:"2026-04-01",daysPending:12,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d2665ac1e575ac"},
-  {id:"gf7",projectId:"p4",urgency:"media",subject:"Cámaras UV N°32 — Certificados BNUP pendientes de respuesta",to:"María Paz Juica (mjuica@recoleta.cl)",context:"Al 13 abril solo hay Certificados de Número. Los BNUP aún no han llegado. Adjudicación programada para el 30 de abril.",sentDate:"2026-04-13",daysPending:0,status:"pendiente",threadUrl:"https://mail.google.com/a/recoleta.cl/#all/19d871327ac64df4"},
-];
+// ── Bandeja de correos (inbox scan) ──────────────────
+// Muestra correos de la última semana agrupados por hilo.
+// Permite: "Seguir" → crea seguimiento activo / "Descartar" → oculta.
+function BandejaPanel({ bandeja, follows, onFollow, onDiscard, onRefresh, syncing, syncMsg, F, btn }) {
+  const [expanded, setExpanded] = useState(null);
+  const discarded = dbGet("bandeja_discarded", []);
+  const followed = new Set((follows || []).map(f => f.threadId).filter(Boolean));
 
-const INIT_P = [
-  {id:"p1",name:"Servicio de Habilitación Tecnológica 6ta Comisaría",budget:40000000,stage:"Formulación",status:"En curso",deadline:"",financier:"SPD",program:"FNSP",desc:"Servicio de habilitación tecnológica sala de televigilancia en la Sexta Comisaría de Carabineros de Recoleta. ID convenio referencia: 1431841-10-LE25. Pendiente definición de ITS y empalme eléctrico con ENEL.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
-  {id:"p2",name:"Integración de Cámaras de Televigilancia en la Comuna de Recoleta",budget:100000000,stage:"Licitación",status:"En curso",deadline:"",financier:"SPD",program:"SNSM 2025",codigoProyecto:"SNSM25-STP-0113",codigoSIGE:"22004928",desc:"Integración de cámaras de televigilancia. 7 postaciones nuevas galvanizadas 15m, cámaras PTZ reconocimiento facial y ANPR, transmisión inalámbrica. ID SPD: SNSM23-STP-0039. Ficha de modificación de plazo enviada a SPD pendiente aprobación.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
-  {id:"p3",name:"Sistemas de CCTV, Centros Culturales",budget:26000000,stage:"Licitación",status:"En curso",deadline:"",financier:"SPD",program:"FNSP",codigoProyecto:"CDP N°79",desc:"Sistema de CCTV para centros culturales de Recoleta. CDP N°79 emitido. Antecedentes entregados a SECPLA el 25 marzo. Pendiente publicación en Mercado Público.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
-  {id:"p4",name:"Cámaras de Televigilancia UV N°32",budget:914371153,stage:"Adjudicación",status:"En curso",deadline:"2026-04-30",financier:"GORE RM",program:"FNDR",codigoProyecto:"BIP 40066179-0",desc:"Cámaras de vigilancia urbana para sectores de Recoleta. Adjudicación programada para el 30 de abril. Pendiente recepción de BNUP.",notes:"",aiSummary:"",licitId:"",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[]},
-  {id:"p5",name:"Habilitación Sala de Monitoreo Edificio Consistorial e Integración Puntos de Cámaras",budget:100000000,stage:"Licitación",status:"Con alerta",deadline:"2026-06-30",financier:"SPD",program:"SNSM 2023",codigoProyecto:"SNSM23-STP-0039 / SNSM23-CMP-0010",codigoSIGE:"21460117",desc:"Habilitación sala de monitoreo en edificio consistorial e integración puntos de cámaras. Licitación pública LP25 desierta (dic 2025), LP26 revocada (feb 2026). Actualmente en trato directo. Convenio SPD aprobado REX 1347 (29-jun-2023).",notes:"",aiSummary:"",licitId:"1431841-68-LP25",licitData:null,licitChecked:"",docs:[],emails:[],tasks:[],convenio:{suscripcion:"2023-06-05",plazoEjecucionFin:"2026-06-30",plazoConvenioFin:"2026-09-30",modificaciones:[{tipo:"Mod. técnica intraítem",oficio:"N°1258 SPD",aprobacion:"2025-05-20",estado:"aprobada"},{tipo:"Ampliación plazo 13 meses",oficio:"N°2321 SPD",aprobacion:"2025-09-04",estado:"aprobada"}]}}
-];
-const EF = {name:"",budget:"",stage:"Formulación",status:"Pendiente",deadline:"",financier:"GORE",program:"",desc:"",notes:"",licitId:""};
+  // Filtrar descartados y ya en seguimiento
+  const visible = (bandeja || []).filter(m =>
+    !discarded.includes(m.threadId) && !followed.has(m.threadId)
+  );
 
-// ── ESTADO INICIAL DRIVE ──────────────────────────────
-// driveData: { projectId: { files:[], lastSync: iso } }
-// calendarEvents: [ { id, title, start, time, description, projectId, url } ]
-// answeredRequests: [ { id, taskId, subject, sentDate, sentTime, emailUrl, howAnswered, pendingReply } ]
+  const daysColor = d => d > 7 ? "#ef4444" : d > 3 ? "#f97316" : d > 1 ? "#f59e0b" : "#059669";
 
-function useW(){const[w,sw]=useState(900);useEffect(()=>{sw(window.innerWidth);const h=()=>sw(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);return w;}
-
-function st(){
-  const get=k=>{if(typeof window==="undefined")return null;try{const v=localStorage.getItem(k);return v?JSON.parse(v):null;}catch{return null;}};
-  const set=(k,v)=>{if(typeof window==="undefined")return;try{localStorage.setItem(k,JSON.stringify(v));}catch{}};
-  return{get,set};
-}
-
-
-// ════════════════════════════════════════════════════════════════════
-// COMPONENTES EXTERNOS — definidos fuera de Page() para cumplir
-// las reglas de hooks de React (no hooks dentro de funciones anidadas)
-// ════════════════════════════════════════════════════════════════════
-
-// ── AddEventForm: formulario de evento manual de calendario ────────
-function AddEventForm({onAdd, projects, F, btn, lbl, inp, mob}){
-  const[ev,setEv]=React.useState({title:"",start:"",time:"",description:"",projectId:"",url:""});
-  return(
-    <div style={{background:"var(--color-background-primary)",borderRadius:10,padding:16,border:"1px solid #bfdbfe",marginTop:8}}>
-      <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
-        <div><label style={lbl}>Título *</label><input value={ev.title} onChange={e=>setEv(x=>({...x,title:e.target.value}))} style={inp} placeholder="Nombre del evento"/></div>
-        <div><label style={lbl}>Fecha *</label><input type="date" value={ev.start} onChange={e=>setEv(x=>({...x,start:e.target.value}))} style={inp}/></div>
-        <div><label style={lbl}>Hora</label><input value={ev.time} onChange={e=>setEv(x=>({...x,time:e.target.value}))} style={inp} placeholder="Ej: 13:00"/></div>
-        <div><label style={lbl}>Proyecto</label>
-          <select value={ev.projectId} onChange={e=>setEv(x=>({...x,projectId:e.target.value}))} style={inp}>
-            <option value="">Sin asociar</option>
-            {projects.map(p=><option key={p.id} value={p.id}>{p.name.slice(0,50)}</option>)}
-          </select>
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div style={{ fontSize: F(13), fontWeight: 700, color: "#0284c7" }}>
+          📥 Bandeja — Correos importantes {visible.length > 0 && <span style={{ marginLeft: 6, background: "#eff6ff", color: "#1d4ed8", borderRadius: 10, padding: "1px 8px", fontSize: F(10), fontWeight: 700 }}>{visible.length}</span>}
         </div>
+        <button onClick={onRefresh} disabled={syncing} style={{ ...btn(syncing ? "#94a3b8" : "#0284c7"), fontSize: F(11), padding: "6px 12px" }}>
+          {syncing ? "⏳" : "🔄"} Actualizar
+        </button>
       </div>
-      <div style={{marginBottom:10}}><label style={lbl}>Descripción</label><textarea value={ev.description} onChange={e=>setEv(x=>({...x,description:e.target.value}))} rows={2} style={{...inp,resize:"vertical"}}/></div>
-      <div style={{marginBottom:12}}><label style={lbl}>URL evento (opcional)</label><input value={ev.url} onChange={e=>setEv(x=>({...x,url:e.target.value}))} style={inp} placeholder="https://"/></div>
-      <button onClick={()=>{if(!ev.title||!ev.start)return;onAdd(ev);setEv({title:"",start:"",time:"",description:"",projectId:"",url:""});}} style={btn("#0284c7")}>Agregar evento</button>
+
+      {syncMsg && (
+        <div style={{ fontSize: F(11), color: syncMsg.includes("error") || syncMsg.includes("Error") ? "#dc2626" : syncMsg.includes("Sin credenciales") ? "#d97706" : "#059669", marginBottom: 8, padding: "6px 10px", background: "#f8fafc", borderRadius: 6, border: "0.5px solid #e2e8f0" }}>
+          {syncMsg}
+        </div>
+      )}
+
+      {visible.length === 0 && !syncing && (
+        <div style={{ background: "#f0fdf4", borderRadius: 10, padding: "20px 14px", textAlign: "center", border: "1px solid #bbf7d0" }}>
+          <div style={{ fontSize: F(22), marginBottom: 6 }}>✅</div>
+          <div style={{ fontSize: F(12), color: "#15803d", fontWeight: 600 }}>Bandeja limpia</div>
+          <div style={{ fontSize: F(11), color: "#64748b", marginTop: 3 }}>Sin correos pendientes de revisión</div>
+        </div>
+      )}
+
+      {visible.map(m => {
+        const isExp = expanded === m.threadId;
+        const dc = daysColor(m.daysSinceLastMsg);
+        return (
+          <div key={m.threadId} style={{ background: "white", borderRadius: 10, marginBottom: 8, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "11px 14px" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: F(13), fontWeight: 600, color: "#0f172a", marginBottom: 3, lineHeight: 1.3 }}>
+                  {m.subject?.length > 70 ? m.subject.slice(0, 70) + "…" : m.subject}
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: F(11), color: "#475569", fontWeight: 500 }}>{m.fromName?.slice(0, 35)}</span>
+                  <span style={{ fontSize: F(10), padding: "2px 8px", borderRadius: 10, background: dc + "18", color: dc, fontWeight: 700 }}>
+                    hace {m.daysSinceLastMsg}d
+                  </span>
+                </div>
+                {isExp && m.snippet && (
+                  <div style={{ marginTop: 6, fontSize: F(11), color: "#64748b", lineHeight: 1.5, padding: "6px 8px", background: "#f8fafc", borderRadius: 5 }}>
+                    {m.snippet}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button onClick={() => setExpanded(isExp ? null : m.threadId)} style={{ fontSize: F(10), padding: "4px 8px", borderRadius: 5, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", color: "#64748b" }}>
+                  {isExp ? "▲" : "▼"}
+                </button>
+                {m.threadUrl && (
+                  <a href={m.threadUrl} target="_blank" rel="noreferrer" style={{ fontSize: F(10), padding: "4px 8px", borderRadius: 5, background: "#eff6ff", color: "#1d4ed8", textDecoration: "none", fontWeight: 700 }}>
+                    Gmail
+                  </a>
+                )}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, padding: "0 14px 11px", flexWrap: "wrap" }}>
+              <button onClick={() => onFollow(m)} style={{ ...btn("#1d4ed8"), fontSize: F(11), padding: "5px 12px" }}>
+                📌 Seguir
+              </button>
+              <button onClick={() => onDiscard(m.threadId)} style={{ fontSize: F(11), padding: "5px 12px", borderRadius: 6, border: "1px solid #e2e8f0", background: "white", color: "#94a3b8", cursor: "pointer" }}>
+                Descartar
+              </button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-// ── GmailFollowPanel: panel unificado Gmail + Acuses de Lectura ─────
-// Reemplaza el antiguo GmailPanel + AcusesPanel por un único panel
-// con tabs: "Seguimientos" y "Acuses de Lectura"
-function GmailFollowPanel({
-  gf, projects, readReceipts, resolveFollow, syncStatus, syncingReceipts,
-  syncReadReceipts, schedLog, F, btn, UC, UL, fDate, fDateTime
-}){
-  const[tab,setTab]=React.useState("seguimientos");
-  const[expanded,setExpanded]=React.useState(new Set());
-  const[filter,setFilter]=React.useState("all");
-  const[search,setSearch]=React.useState("");
-  const toggleExpand=id=>setExpanded(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});
+// ── Panel de seguimientos activos ─────────────────────
+function FollowsPanel({ follows, projects, onResolve, onAdd, F, btn, UC, UL, fDate }) {
+  const [showForm, setShowForm] = useState(false);
+  const [nf, setNf] = useState({ projectId: "", urgency: "media", subject: "", to: "", context: "", threadUrl: "" });
 
-  const pendingGf=gf.filter(f=>f.status==="pendiente");
-  const criticalGf=pendingGf.filter(f=>f.urgency==="crítica");
-  const sorted=[...pendingGf].sort((a,b)=>({crítica:0,alta:1,media:2}[a.urgency])-({crítica:0,alta:1,media:2}[b.urgency]));
+  const active = [...follows.filter(f => f.status === "activo")]
+    .sort((a, b) => ({ "crítica": 0, "alta": 1, "media": 2 }[a.urgency] ?? 3) - ({ "crítica": 0, "alta": 1, "media": 2 }[b.urgency] ?? 3));
+  const resolved = follows.filter(f => f.status === "resuelto");
 
-  // Datos de acuses: usa readReceipts (dinámico) o set inicial de referencia
-  const INIT_RECEIPTS=[
-    {id:"e1",subject:"Proyecto Central de Monitoreo -1 / Factibilidad uso de Torre Telecom",context:"Solicitud uso Torre Telecom como repetidor 5GHz.",sentDate:"2026-04-01",project:"p5",threadUrl:"https://mail.google.com/mail/u/0/#all/19d4aa05342a51ac",recipients:[{name:"Elizabeth Nuñez",email:"enunez@recoleta.cl",readAt:"2026-04-01 15:26"},{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-02 08:56"},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:"2026-04-15 12:49"},{name:"Francisco Moscoso",email:"fmoscoso@recoleta.cl",readAt:"2026-04-15 13:00"},{name:"Carolina Velásquez",email:"cvelasquez@recoleta.cl",readAt:"2026-04-15 15:25"}]},
-    {id:"e2",subject:"Re: Envia convenio MTT sobre acceso a imágenes de puntos de cámaras",context:"Acción sobre convenio MTT. Lectura confirmada equipo SECPLA.",sentDate:"2026-04-15",project:"p5",threadUrl:"https://mail.google.com/mail/u/0/#all/19d68379ad0c8606",recipients:[{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-15 08:51"},{name:"Carolina Velásquez",email:"cvelasquez@recoleta.cl",readAt:"2026-04-15 08:54"},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:"2026-04-15 09:10"},{name:"Elizabeth Nuñez",email:"enunez@recoleta.cl",readAt:"2026-04-15 12:28"}]},
-    {id:"e3",subject:"Re: Modificación Plazo SNSM23-STP-0039 Municipalidad Recoleta",context:"Seguimiento ficha modificación de plazo enviada a SPD.",sentDate:"2026-04-14",project:"p2",threadUrl:"https://mail.google.com/mail/u/0/#all/19d1ab5d03fb53ce",recipients:[{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-15 09:12"},{name:"Osvaldo Muñoz (SPD)",email:"omunoz@minsegpublica.gob.cl",readAt:null},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:null},{name:"Genaro Cuadros",email:"gcuadros@recoleta.cl",readAt:null}]},
-    {id:"e4",subject:"Proyecto Sala de Monitoreo Edificio Consistorial - Recoleta",context:"Correo 1 abril. Confirmaciones de lectura por jefatura.",sentDate:"2026-04-01",project:"p5",threadUrl:"https://mail.google.com/mail/u/0/#all/19d49b7da102875b",recipients:[{name:"Hernan Aravena",email:"haravena@recoleta.cl",readAt:"2026-04-01 15:17"},{name:"Elizabeth Nuñez",email:"enunez@recoleta.cl",readAt:"2026-04-01 15:28"},{name:"Maria Paz Juica",email:"mjuica@recoleta.cl",readAt:"2026-04-02 13:59"}]},
-  ];
-  const receiptsData = readReceipts.length>0 ? readReceipts : INIT_RECEIPTS;
-
-  const ini=name=>name.split(" ").filter(w=>w.length>2).slice(0,2).map(w=>w[0]).toUpperCase().join("");
-  const fdt=iso=>{
-    if(!iso)return"—";
-    try{const d=new Date(iso.includes("T")?iso:iso.replace(" ","T"));
-    return d.toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})+" "+d.toLocaleDateString("es-CL",{day:"2-digit",month:"short"});}
-    catch{return"—";}
-  };
-  const getStatus=e=>{
-    const t=(e.recipients||[]).length, r=(e.recipients||[]).filter(x=>x.readAt).length;
-    return r===0?"pending":r===t?"all_read":"partial";
+  const saveNew = () => {
+    if (!nf.subject || !nf.to) return;
+    onAdd({ id: uid(), ...nf, sentDate: new Date().toISOString().slice(0, 10), daysPending: 0, status: "activo", manual: true });
+    setNf({ projectId: "", urgency: "media", subject: "", to: "", context: "", threadUrl: "" });
+    setShowForm(false);
   };
 
-  // Encontrar seguimiento relacionado con un acuse
-  const relatedFollowup = (receipt) =>
-    gf.find(f => f.threadUrl?.includes(receipt.threadUrl?.split("/").pop()||"NONE") ||
-      receipt.subject?.toLowerCase().includes((f.subject||"").toLowerCase().slice(0,20)));
+  const inp = { padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: F(12), width: "100%", boxSizing: "border-box", outline: "none" };
 
-  const ss=syncStatus.acuses||{state:"idle",ts:null,msg:""};
-  const stC=ss.state==="ok"?"#059669":ss.state==="error"?"#dc2626":ss.state==="warn"?"#d97706":"#94a3b8";
-
-  let filteredReceipts=receiptsData;
-  if(filter!=="all") filteredReceipts=filteredReceipts.filter(e=>getStatus(e)===filter);
-  if(search) filteredReceipts=filteredReceipts.filter(e=>
-    e.subject?.toLowerCase().includes(search.toLowerCase())||
-    (e.recipients||[]).some(r=>r.name?.toLowerCase().includes(search.toLowerCase())));
-
-  return(
-    <div style={{marginTop:24}}>
-      {/* Header unificado */}
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
-        <div style={{display:"flex",gap:4}}>
-          <button onClick={()=>setTab("seguimientos")} style={{fontSize:F(12),fontWeight:tab==="seguimientos"?700:500,padding:"7px 14px",borderRadius:8,border:"none",background:tab==="seguimientos"?"#dc2626":"#f1f5f9",color:tab==="seguimientos"?"white":"#64748b",cursor:"pointer"}}>
-            📬 Seguimientos {pendingGf.length>0&&<span style={{marginLeft:4,background:tab==="seguimientos"?"rgba(255,255,255,0.3)":"#fecaca",color:tab==="seguimientos"?"white":"#dc2626",borderRadius:10,padding:"1px 6px",fontSize:F(10)}}>{pendingGf.length}</span>}
-          </button>
-          <button onClick={()=>setTab("acuses")} style={{fontSize:F(12),fontWeight:tab==="acuses"?700:500,padding:"7px 14px",borderRadius:8,border:"none",background:tab==="acuses"?"#7c3aed":"#f1f5f9",color:tab==="acuses"?"white":"#64748b",cursor:"pointer"}}>
-            👁 Acuses {receiptsData.length>0&&<span style={{marginLeft:4,background:tab==="acuses"?"rgba(255,255,255,0.3)":"#ede9fe",color:tab==="acuses"?"white":"#7c3aed",borderRadius:10,padding:"1px 6px",fontSize:F(10)}}>{receiptsData.length}</span>}
-          </button>
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div style={{ fontSize: F(13), fontWeight: 700, color: "#dc2626" }}>
+          📬 Seguimientos activos {active.length > 0 && <span style={{ marginLeft: 6, background: "#fef2f2", color: "#dc2626", borderRadius: 10, padding: "1px 8px", fontSize: F(10), fontWeight: 700 }}>{active.length}</span>}
         </div>
-        {tab==="acuses"&&(
-          <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            <div style={{fontSize:F(10),color:stC}}>{ss.state==="ok"?"✓":ss.state==="error"?"✕ Error":"○"} {ss.ts?new Date(ss.ts).toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"}):""}</div>
-            <button onClick={()=>syncReadReceipts(false)} disabled={syncingReceipts} style={{...btn(syncingReceipts?"#94a3b8":"#7c3aed"),fontSize:F(11),padding:"6px 12px",opacity:syncingReceipts?0.7:1}}>
-              {syncingReceipts?"⏳":"🔄"} Actualizar
-            </button>
-          </div>
-        )}
-        {tab==="seguimientos"&&criticalGf.length>0&&(
-          <span style={{fontSize:F(11),color:"#94a3b8"}}>Solo lectura</span>
-        )}
+        <button onClick={() => setShowForm(x => !x)} style={{ ...btn(showForm ? "#64748b" : "#0284c7"), fontSize: F(11), padding: "6px 12px" }}>
+          {showForm ? "✕ Cancelar" : "+ Agregar"}
+        </button>
       </div>
 
-      {/* ── TAB SEGUIMIENTOS ── */}
-      {tab==="seguimientos"&&(
-        <>
-          {sorted.length===0&&<div style={{fontSize:F(13),color:"#94a3b8",padding:"1rem 0"}}>Sin seguimientos pendientes.</div>}
-          {sorted.map(f=>{
-            const fp=projects.find(p=>p.id===f.projectId);
-            // ¿Tiene acuse de lectura relacionado?
-            const relReceipt=receiptsData.find(r=>
-              r.threadUrl?.includes(f.threadUrl?.split("/").pop()||"NONE")||
-              f.subject?.toLowerCase().includes((r.subject||"").toLowerCase().slice(0,20)));
-            const relReaders=relReceipt?(relReceipt.recipients||[]).filter(x=>x.readAt):[];
-            const relPending=relReceipt?(relReceipt.recipients||[]).filter(x=>!x.readAt):[];
-            return(
-              <div key={f.id} style={{background:"white",borderRadius:10,padding:16,border:`1px solid ${UC[f.urgency]}33`,marginBottom:12,borderLeft:`4px solid ${UC[f.urgency]}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}}>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:700,fontSize:F(14),color:"#0f172a",marginBottom:4}}>{UL[f.urgency]} {f.subject}</div>
-                    <div style={{fontSize:F(12),color:"#64748b",marginBottom:4}}>→ {f.to}</div>
-                    {fp&&<span style={{fontSize:F(11),padding:"3px 9px",borderRadius:6,background:"#f1f5f9",color:"#475569"}}>{fp.name}</span>}
-                  </div>
-                  <div style={{textAlign:"right",flexShrink:0}}>
-                    <div style={{fontSize:F(13),fontWeight:700,color:UC[f.urgency]}}>{f.daysPending}d sin resp.</div>
-                    <div style={{fontSize:F(11),color:"#94a3b8",marginTop:2}}>{fDate(f.sentDate)}</div>
-                  </div>
-                </div>
-                <p style={{fontSize:F(12),color:"#475569",lineHeight:1.6,margin:"0 0 10px",padding:"8px 10px",background:"#f8fafc",borderRadius:5}}>{f.context}</p>
-
-                {/* Acuses relacionados inline */}
-                {relReceipt&&(
-                  <div style={{marginBottom:10,padding:"8px 10px",background:"#f5f3ff",borderRadius:7,border:"1px solid #ede9fe"}}>
-                    <div style={{fontSize:F(10),fontWeight:700,color:"#7c3aed",textTransform:"uppercase",letterSpacing:.05,marginBottom:6}}>👁 Acuses de lectura</div>
-                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                      {relReaders.map(r=>(
-                        <div key={r.email} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 8px",background:"#EAF3DE",borderRadius:20}}>
-                          <div style={{width:18,height:18,borderRadius:"50%",background:"#639922",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"9px",color:"white",fontWeight:700}}>
-                            {r.name.split(" ").filter(w=>w.length>2).slice(0,1).map(w=>w[0]).join("")}
-                          </div>
-                          <span style={{fontSize:F(10),color:"#27500A",fontWeight:500}}>{r.name.split(" ")[0]}</span>
-                          <span style={{fontSize:"9px",color:"#3B6D11"}}>{r.readAt?.split(" ")[1]||""}</span>
-                        </div>
-                      ))}
-                      {relPending.map(r=>(
-                        <div key={r.email} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 8px",background:"#FCEBEB",borderRadius:20}}>
-                          <div style={{width:18,height:18,borderRadius:"50%",background:"#ef4444",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"9px",color:"white",fontWeight:700}}>
-                            {r.name.split(" ").filter(w=>w.length>2).slice(0,1).map(w=>w[0]).join("")}
-                          </div>
-                          <span style={{fontSize:F(10),color:"#791F1F",fontWeight:500}}>{r.name.split(" ")[0]}</span>
-                          <span style={{fontSize:"9px",color:"#A32D2D"}}>pendiente</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  <a href={f.threadUrl} target="_blank" rel="noreferrer" style={{fontSize:F(12),color:"#1d4ed8",padding:"7px 14px",borderRadius:6,background:"#eff6ff",textDecoration:"none",fontWeight:700}}>✉️ Abrir en Gmail</a>
-                  <button onClick={()=>resolveFollow(f.id)} style={{...btn("#dcfce7","#166534"),fontSize:F(12),padding:"7px 14px"}}>✅ Resuelto</button>
-                  <button onClick={()=>resolveFollow(f.id)} style={{...btn("#f1f5f9","#64748b"),fontSize:F(12),padding:"7px 14px"}}>✕ Descartar</button>
-                </div>
-              </div>
-            );
-          })}
-          {gf.filter(f=>f.status==="resuelto").length>0&&(
-            <div style={{fontSize:F(11),color:"#94a3b8",textAlign:"center",marginTop:6}}>
-              {gf.filter(f=>f.status==="resuelto").length} resuelto(s)
+      {showForm && (
+        <div style={{ background: "#f8fafc", borderRadius: 10, padding: 14, border: "1px solid #bfdbfe", marginBottom: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <div><label style={{ fontSize: F(11), fontWeight: 700, display: "block", marginBottom: 3 }}>Proyecto</label>
+              <select value={nf.projectId} onChange={e => setNf(x => ({ ...x, projectId: e.target.value }))} style={inp}>
+                <option value="">Sin proyecto</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name.slice(0, 35)}</option>)}
+              </select>
             </div>
-          )}
-        </>
+            <div><label style={{ fontSize: F(11), fontWeight: 700, display: "block", marginBottom: 3 }}>Urgencia</label>
+              <select value={nf.urgency} onChange={e => setNf(x => ({ ...x, urgency: e.target.value }))} style={inp}>
+                <option value="crítica">🔴 Crítica</option><option value="alta">🟠 Alta</option><option value="media">🟡 Media</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ marginBottom: 8 }}><label style={{ fontSize: F(11), fontWeight: 700, display: "block", marginBottom: 3 }}>Asunto *</label><input value={nf.subject} onChange={e => setNf(x => ({ ...x, subject: e.target.value }))} placeholder="Ej: Respuesta pendiente SPD" style={inp} /></div>
+          <div style={{ marginBottom: 8 }}><label style={{ fontSize: F(11), fontWeight: 700, display: "block", marginBottom: 3 }}>Destinatario / Remitente *</label><input value={nf.to} onChange={e => setNf(x => ({ ...x, to: e.target.value }))} placeholder="Nombre o email" style={inp} /></div>
+          <div style={{ marginBottom: 8 }}><label style={{ fontSize: F(11), fontWeight: 700, display: "block", marginBottom: 3 }}>Contexto</label><textarea value={nf.context} onChange={e => setNf(x => ({ ...x, context: e.target.value }))} rows={2} style={{ ...inp, resize: "vertical" }} /></div>
+          <div style={{ marginBottom: 10 }}><label style={{ fontSize: F(11), fontWeight: 700, display: "block", marginBottom: 3 }}>URL Gmail (opcional)</label><input value={nf.threadUrl} onChange={e => setNf(x => ({ ...x, threadUrl: e.target.value }))} placeholder="https://mail.google.com/..." style={inp} /></div>
+          <button onClick={saveNew} style={{ ...btn("#1d4ed8"), fontSize: F(12) }}>Guardar seguimiento</button>
+        </div>
       )}
 
-      {/* ── TAB ACUSES ── */}
-      {tab==="acuses"&&(
-        <>
-          {/* Estado sync */}
-          {ss.state!=="idle"&&(
-            <div style={{background:ss.state==="error"?"#fef2f2":ss.state==="ok"?"#f0fdf4":"#f8fafc",borderRadius:8,padding:"8px 12px",border:`1px solid ${stC}33`,marginBottom:12,fontSize:F(11)}}>
-              <span style={{color:stC,fontWeight:600}}>{ss.state==="ok"?"✓":ss.state==="error"?"✕":"⚠"} {ss.msg}</span>
-              {ss.code&&<span style={{color:"#dc2626",fontFamily:"monospace",marginLeft:8}}>cod: {ss.code}</span>}
-              <span style={{color:"#94a3b8",marginLeft:8,fontSize:F(10)}}>Auto: 08:05 · 11:00 · 14:00 · 17:35</span>
-            </div>
-          )}
+      {active.length === 0 && (
+        <div style={{ background: "#f0fdf4", borderRadius: 10, padding: "16px 14px", textAlign: "center", border: "1px solid #bbf7d0" }}>
+          <div style={{ fontSize: F(12), color: "#15803d", fontWeight: 600 }}>🎉 Sin seguimientos activos</div>
+        </div>
+      )}
 
-          {/* Filtros */}
-          <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
-            {[["all","Todos"],["all_read","Todos leyeron"],["partial","Parcial"],["pending","Sin acuse"]].map(([fv,fl])=>(
-              <button key={fv} onClick={()=>setFilter(fv)} style={{fontSize:F(11),padding:"4px 10px",borderRadius:20,border:`0.5px solid ${filter===fv?"#7c3aed":"#e2e8f0"}`,background:filter===fv?"#7c3aed":"transparent",color:filter===fv?"white":"#64748b",cursor:"pointer"}}>{fl}</button>
+      {active.map(f => {
+        const fp = projects.find(p => p.id === f.projectId);
+        return (
+          <div key={f.id} style={{ background: "white", borderRadius: 10, padding: 14, border: `1px solid ${UC[f.urgency]}33`, marginBottom: 10, borderLeft: `4px solid ${UC[f.urgency]}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: F(13), fontWeight: 700, color: "#0f172a", marginBottom: 3 }}>
+                  {UL[f.urgency]} {f.subject}
+                  {f.manual && <span style={{ marginLeft: 6, fontSize: F(9), color: "#0284c7" }}>✋manual</span>}
+                </div>
+                <div style={{ fontSize: F(11), color: "#64748b" }}>→ {f.to}</div>
+                {fp && <div style={{ marginTop: 3 }}><span style={{ fontSize: F(10), padding: "2px 8px", borderRadius: 6, background: "#f1f5f9", color: "#475569" }}>{fp.name.slice(0, 40)}</span></div>}
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <div style={{ fontSize: F(13), fontWeight: 700, color: UC[f.urgency] }}>{f.daysPending}d</div>
+                <div style={{ fontSize: F(10), color: "#94a3b8" }}>{fDate(f.sentDate)}</div>
+              </div>
+            </div>
+            {f.context && <div style={{ fontSize: F(11), color: "#475569", lineHeight: 1.5, padding: "6px 8px", background: "#f8fafc", borderRadius: 5, marginBottom: 8 }}>{f.context}</div>}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {f.threadUrl && <a href={f.threadUrl} target="_blank" rel="noreferrer" style={{ fontSize: F(11), padding: "5px 12px", borderRadius: 6, background: "#eff6ff", color: "#1d4ed8", textDecoration: "none", fontWeight: 700 }}>✉️ Gmail</a>}
+              <button onClick={() => onResolve(f.id)} style={{ ...btn("#dcfce7", "#166534"), fontSize: F(11), padding: "5px 12px" }}>✅ Resuelto</button>
+            </div>
+          </div>
+        );
+      })}
+
+      {resolved.length > 0 && (
+        <details style={{ marginTop: 6 }}>
+          <summary style={{ fontSize: F(11), color: "#94a3b8", cursor: "pointer", padding: "5px 0" }}>
+            Ver {resolved.length} resueltos
+          </summary>
+          <div style={{ marginTop: 6 }}>
+            {resolved.slice(0, 15).map(f => (
+              <div key={f.id} style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px", marginBottom: 6, opacity: 0.75, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: F(12), color: "#64748b", textDecoration: "line-through" }}>{f.subject}</div>
+                  <div style={{ fontSize: F(10), color: "#94a3b8" }}>→ {f.to} · {fDate(f.sentDate)}</div>
+                  {f.resolvedAt && <div style={{ fontSize: F(10), color: "#059669" }}>✅ {fDate(f.resolvedAt)}</div>}
+                </div>
+                <button onClick={() => onResolve(f.id, "reopen")} style={{ fontSize: F(10), padding: "3px 8px", borderRadius: 5, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", color: "#64748b" }}>↩</button>
+              </div>
             ))}
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar…" style={{flex:1,minWidth:120,fontSize:F(12),padding:"5px 10px",border:"0.5px solid #e2e8f0",borderRadius:8,background:"white",color:"#0f172a"}}/>
           </div>
-
-          {filteredReceipts.length===0&&<div style={{fontSize:F(13),color:"#94a3b8",padding:"1rem 0",textAlign:"center"}}>Sin resultados.</div>}
-          {filteredReceipts.map(email=>{
-            const st=getStatus(email);
-            const total=(email.recipients||[]).length;
-            const readCount=(email.recipients||[]).filter(r=>r.readAt).length;
-            const pct=total?Math.round((readCount/total)*100):0;
-            const isOpen=expanded.has(email.id);
-            const stBg=st==="all_read"?"#EAF3DE":st==="partial"?"#FAEEDA":"#FCEBEB";
-            const stC2=st==="all_read"?"#27500A":st==="partial"?"#633806":"#791F1F";
-            const stL=st==="all_read"?"Leído por todos":`${readCount}/${total} confirmados`;
-            // ¿Relacionado con un seguimiento GF?
-            const relFollow=gf.find(f=>f.threadUrl?.includes(email.threadUrl?.split("/").pop()||"X"));
-            return(
-              <div key={email.id} style={{background:"white",border:"0.5px solid #e2e8f0",borderRadius:10,marginBottom:10,overflow:"hidden"}}>
-                <div onClick={()=>toggleExpand(email.id)} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"12px 14px",cursor:"pointer"}}>
-                  <span style={{fontSize:F(12),color:"#94a3b8",flexShrink:0,marginTop:2,display:"inline-block",transform:isOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>▶</span>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:F(13),fontWeight:500,color:"#0f172a",lineHeight:1.3,marginBottom:3}}>
-                      {email.subject.length>75?email.subject.slice(0,75)+"…":email.subject}
-                    </div>
-                    <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:4}}>
-                      <span style={{fontSize:F(10),padding:"2px 7px",borderRadius:6,background:stBg,color:stC2,fontWeight:500}}>{stL}</span>
-                      {relFollow&&<span style={{fontSize:F(10),padding:"2px 7px",borderRadius:6,background:"#fef3c7",color:"#92400e"}}>⚡ En seguimiento</span>}
-                      <span style={{fontSize:F(10),color:"#94a3b8"}}>{email.sentDate}</span>
-                    </div>
-                    {/* Chips compactos de quién leyó / quién falta */}
-                    <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                      {(email.recipients||[]).map(r=>(
-                        <div key={r.email} title={r.readAt?`${r.name} — leído ${r.readAt}`:`${r.name} — pendiente`} style={{width:22,height:22,borderRadius:"50%",background:r.readAt?"#EAF3DE":"#FCEBEB",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"9px",fontWeight:700,color:r.readAt?"#27500A":"#791F1F",cursor:"default"}}>
-                          {ini(r.name)}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                    <div style={{width:48,height:3,background:"#f1f5f9",borderRadius:2,overflow:"hidden"}}>
-                      <div style={{height:"100%",width:`${pct}%`,background:pct===100?"#639922":pct>0?"#EF9F27":"#ef4444",borderRadius:2}}/>
-                    </div>
-                    <span style={{fontSize:F(10),color:"#94a3b8"}}>{pct}%</span>
-                  </div>
-                </div>
-                {isOpen&&(
-                  <div>
-                    <div style={{borderTop:"0.5px solid #f1f5f9",padding:"10px 14px",display:"flex",flexDirection:"column",gap:6}}>
-                      <div style={{fontSize:F(10),color:"#94a3b8",textTransform:"uppercase",letterSpacing:.05,marginBottom:2}}>Confirmaciones de lectura</div>
-                      {(email.recipients||[]).map(r=>(
-                        <div key={r.email} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:"#f8fafc",borderRadius:7}}>
-                          <div style={{width:28,height:28,borderRadius:"50%",background:r.readAt?"#EAF3DE":"#FCEBEB",display:"flex",alignItems:"center",justifyContent:"center",fontSize:F(10),fontWeight:500,color:r.readAt?"#27500A":"#791F1F",flexShrink:0}}>{ini(r.name)}</div>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:F(12),fontWeight:500,color:"#0f172a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.name}</div>
-                            <div style={{fontSize:F(10),color:r.readAt?"#059669":"#94a3b8"}}>{r.readAt?"Leído "+fdt(r.readAt):"Sin confirmación"}</div>
-                          </div>
-                          <span style={{fontSize:F(10),padding:"2px 6px",borderRadius:4,background:r.readAt?"#EAF3DE":"#f1f5f9",color:r.readAt?"#3B6D11":"#94a3b8",flexShrink:0}}>{r.readAt?"✓":"—"}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{borderTop:"0.5px solid #f1f5f9",padding:"8px 14px"}}>
-                      <a href={email.threadUrl} target="_blank" rel="noreferrer" style={{fontSize:F(12),color:"#1d4ed8",fontWeight:500}}>Abrir hilo en Gmail →</a>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </>
+        </details>
       )}
     </div>
   );
 }
 
-export default function Page(){
-  const w=useW();const mob=w<768;const S=st();
-  const[projects,setProjects]=useState(()=>S.get("sp_proj")||INIT_P);
-  const[gf,setGf]=useState(()=>S.get("sp_gf")||GF_INIT);
-  const[boss,setBoss]=useState(()=>S.get("sp_boss")||BOSS_INIT);
-  // clockData: array dinámico. ALL_CLOCK es la semilla histórica,
-  // se sobreescribe al sincronizar con Gmail via clock_sync
-  const[clockData,setClockData]=useState(()=>{
-    const saved=S.get("sp_clock_data");
-    // Merge: usar guardado si es más reciente, sino usar ALL_CLOCK
-    if(saved&&Array.isArray(saved)&&saved.length>=ALL_CLOCK.length) return saved;
-    return ALL_CLOCK;
-  });
-  const[clockMonth,setClockMonth]=useState("2026-04");
-  const[clockOpen,setClockOpen]=useState(false);
-  const[clockLiveData,setClockLiveData]=useState(()=>S.get("sp_clock_live")||{});
-  const[checkingClock,setCheckingClock]=useState(false);
+// ── Panel cotizaciones SNSM 2025 ─────────────────────
+function CotizPanel({ cotiz, syncing, syncMsg, onRefresh, F, btn, fDate }) {
+  const [open, setOpen] = useState(null);
+  const [filter, setFilter] = useState("all");
 
-  // ── SCHEDULER ─────────────────────────────────────────────────────
-  // Horarios automáticos en hora Chile (America/Santiago)
-  // Reloj: 08:00 · 13:30 · 17:30  →  3 veces/día L-V
-  // Acuses: 08:05 · 11:00 · 14:00 · 17:35  →  4 veces/día L-V
-  // Granularidad: el setInterval verifica cada minuto si toca ejecutar
-  const CLOCK_SLOTS  = ["08:00","13:30","17:30"];
-  const RECEIPT_SLOTS = ["08:05","11:00","14:00","17:35"];
-  const schedulerRef = useRef(null);
-  const[readReceipts,setReadReceipts]=useState(()=>S.get("sp_receipts")||[]);
-  const[syncingReceipts,setSyncingReceipts]=useState(false);
-  // schedLog: registro de cada ejecución del scheduler con resultado
-  const[schedLog,setSchedLog]=useState(()=>S.get("sp_sched_log")||[]);
-  const[showSchedLog,setShowSchedLog]=useState(false);
-  const saveSchedLog = entries => { setSchedLog(entries); S.set("sp_sched_log",entries); };
+  const ST = {
+    sin_enviar:             { c: "#64748b", bg: "#f1f5f9", lbl: "Sin enviar",          ic: "○" },
+    enviado:                { c: "#3b82f6", bg: "#eff6ff", lbl: "Enviado, esperando",  ic: "📤" },
+    sin_respuesta:          { c: "#f59e0b", bg: "#fffbeb", lbl: "Sin respuesta",        ic: "⏳" },
+    sin_respuesta_urgente:  { c: "#ef4444", bg: "#fef2f2", lbl: "Urgente — sin resp.",  ic: "🚨" },
+    respondido:             { c: "#0284c7", bg: "#e0f2fe", lbl: "Respondió",            ic: "💬" },
+    cotizacion_recibida:    { c: "#059669", bg: "#f0fdf4", lbl: "Cotización recibida",  ic: "✅" },
+    email_rebotado:         { c: "#dc2626", bg: "#fee2e2", lbl: "Email rebotado",       ic: "❌" },
+  };
 
-  // ── syncClockFromGmail: lee TODOS los registros desde Gmail ─────────────
-  // Se llama manualmente (botón Reloj) o automáticamente en ventanas 09:30/18:20 L-V
-  const syncClockFromGmail = async (silent=false) => {
-    if(!silent) setSyncStatus(p=>({...p,reloj:{state:"loading",ts:null,msg:"Leyendo Gmail..."}}));
-    setCheckingClock(true);
-    try {
-      const res = await fetch("/api/ai", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ type: "clock_sync", since: "2026/01/01" })
-      }).catch(netErr=>{throw Object.assign(new Error(netErr.message),{name:"TypeError",code:"NETWORK"});});
-      if(!res.ok) {
-        const errData = await res.json().catch(()=>({}));
-        const code = String(errData.errorCode||res.status);
-        const hint = res.status===400?"Verificar configuración del servidor":
-                     res.status===401||res.status===403?"Sin autorización — revisar credenciales Google":
-                     res.status>=500?"Error interno del servidor":
-                     errData.errorMessage||"Error de red";
-        setSyncStatus(p=>({...p,reloj:{state:"error",ts:new Date().toISOString(),msg:`HTTP_${code}: ${hint}`,code:`HTTP_${code}`}}));
-        return;
-      }
-      const data = await res.json();
-      if(data.error) {
-        setSyncStatus(p=>({...p,reloj:{state:"error",ts:new Date().toISOString(),msg:`${data.errorCode}: ${data.errorMessage}`,code:data.errorCode}}));
-        return;
-      }
-      let newData;
-      try { newData = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
-      catch { newData = []; }
-      if(Array.isArray(newData) && newData.length > 0){
-        // Merge: preservar entradas históricas no cubiertas por Gmail
-        const gmailDates = new Set(newData.map(r=>r.date));
-        const historical = ALL_CLOCK.filter(r=>!gmailDates.has(r.date));
-        const merged = [...historical, ...newData].sort((a,b)=>a.date.localeCompare(b.date));
-        setClockData(merged);
-        S.set("sp_clock_data", merged);
-        const today = newData.find(r=>r.date===new Date().toISOString().slice(0,10));
-        const msg = today
-          ? `✓ ${newData.length} días · Hoy: Entrada ${today.entrada||"—"} · Salida ${today.salida||"en curso"}`
-          : `✓ ${newData.length} días sincronizados`;
-        setSyncStatus(p=>({...p,reloj:{state:"ok",ts:new Date().toISOString(),msg}}));
-      } else {
-        setSyncStatus(p=>({...p,reloj:{state:"warn",ts:new Date().toISOString(),msg:"No se encontraron registros en Gmail"}}));
-      }
-    } catch(e) {
-      setSyncStatus(p=>({...p,reloj:{state:"error",ts:new Date().toISOString(),msg:`Excepción: ${e.message}`,code:"EXCEPTION"}}));
+  const SEED = [
+    { empresa: "Scharfstein",   contacto: "Sebastián Merino", email: "smerino@scharfstein.cl",       estado: "sin_respuesta_urgente", totalEnviados: 3, totalRecibidos: 0, diasSinResp: 14, firstSent: null, lastSent: null, lastRecv: null, timeline: [] },
+    { empresa: "Bionic Vision", contacto: "Letxy Valero",     email: "lvalero@bionicvision.cl",      estado: "respondido",            totalEnviados: 2, totalRecibidos: 1, diasSinResp: 2,  firstSent: null, lastSent: null, lastRecv: null, timeline: [] },
+    { empresa: "Grupo VSM",     contacto: "Comunicaciones",   email: "comunicaciones@grupovsm.cl",   estado: "sin_respuesta",         totalEnviados: 1, totalRecibidos: 0, diasSinResp: 5,  firstSent: null, lastSent: null, lastRecv: null, timeline: [] },
+    { empresa: "RockTech",      contacto: "Fabiana Rifo",     email: "fabiana.rifo@rocktechla.com",  estado: "sin_respuesta",         totalEnviados: 1, totalRecibidos: 0, diasSinResp: 5,  firstSent: null, lastSent: null, lastRecv: null, timeline: [] },
+    { empresa: "Securitas",     contacto: "Contacto",         email: "comercial@securitas.cl",       estado: "email_rebotado",        totalEnviados: 1, totalRecibidos: 0, diasSinResp: null, firstSent: null, lastSent: null, lastRecv: null, timeline: [] },
+    { empresa: "Prosegur",      contacto: "Ventas",           email: "ventas.empresas@prosegur.com", estado: "email_rebotado",        totalEnviados: 1, totalRecibidos: 0, diasSinResp: null, firstSent: null, lastSent: null, lastRecv: null, timeline: [] },
+  ];
+
+  const data = cotiz?.length > 0 ? cotiz : SEED;
+  const filtered = filter === "all" ? data : data.filter(c => c.estado === filter);
+  const conCotiz = data.filter(c => c.estado === "cotizacion_recibida").length;
+  const urgentes = data.filter(c => ["sin_respuesta_urgente", "email_rebotado"].includes(c.estado)).length;
+
+  return (
+    <div style={{ background: "white", borderRadius: 12, padding: 16, border: "2px solid #e0f2fe", marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: F(14), fontWeight: 800, color: "#0c4a6e" }}>📋 Cotizaciones SNSM 2025</div>
+          <div style={{ fontSize: F(11), color: "#64748b", marginTop: 2 }}>
+            <strong style={{ color: "#059669" }}>{conCotiz}/{data.length}</strong> recibidas
+            {urgentes > 0 && <> · <strong style={{ color: "#dc2626" }}>{urgentes} urgentes</strong></>}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {syncMsg && <span style={{ fontSize: F(10), color: "#64748b" }}>{syncMsg}</span>}
+          <button onClick={onRefresh} disabled={syncing} style={{ ...btn(syncing ? "#94a3b8" : "#0284c7"), fontSize: F(11), padding: "6px 12px" }}>
+            {syncing ? "⏳" : "🔄"} Actualizar
+          </button>
+        </div>
+      </div>
+
+      {/* KPIs rápidos */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+        {[["all", "Todas", data.length, "#64748b"], ["cotizacion_recibida", "✅ Recibidas", conCotiz, "#059669"], ["sin_respuesta_urgente", "🚨 Urgentes", urgentes, "#ef4444"], ["email_rebotado", "❌ Rebotados", data.filter(c => c.estado === "email_rebotado").length, "#dc2626"]].map(([fv, fl, cnt, fc]) => (
+          <button key={fv} onClick={() => setFilter(fv)} style={{ fontSize: F(11), padding: "4px 10px", borderRadius: 20, border: `1px solid ${filter === fv ? fc : "#e2e8f0"}`, background: filter === fv ? fc : "white", color: filter === fv ? "white" : "#64748b", cursor: "pointer", fontWeight: 600 }}>
+            {fl} {cnt > 0 && `(${cnt})`}
+          </button>
+        ))}
+      </div>
+
+      {filtered.map(c => {
+        const cfg = ST[c.estado] || ST.sin_enviar;
+        const isOpen = open === c.empresa;
+        return (
+          <div key={c.empresa} style={{ borderRadius: 10, marginBottom: 8, border: `1px solid ${cfg.c}33`, overflow: "hidden", borderLeft: `4px solid ${cfg.c}` }}>
+            <div onClick={() => setOpen(isOpen ? null : c.empresa)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", cursor: "pointer", background: cfg.bg + "60" }}>
+              <span style={{ fontSize: F(11), color: "#94a3b8", transform: isOpen ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0 }}>▶</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: F(13), fontWeight: 800, color: "#0f172a" }}>{c.empresa}</span>
+                  <span style={{ fontSize: F(10), padding: "2px 8px", borderRadius: 10, background: cfg.bg, color: cfg.c, fontWeight: 700 }}>{cfg.ic} {cfg.lbl}</span>
+                  {c.diasSinResp != null && c.diasSinResp > 0 && <span style={{ fontSize: F(10), color: c.diasSinResp > 7 ? "#ef4444" : "#f59e0b", fontWeight: 700 }}>{c.diasSinResp}d sin resp.</span>}
+                </div>
+                <div style={{ fontSize: F(10), color: "#64748b", marginTop: 2 }}>{c.contacto} · 📤 {c.totalEnviados} · 📥 {c.totalRecibidos}</div>
+              </div>
+              {c.lastRecv?.url
+                ? <a href={c.lastRecv.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: F(11), color: "#059669", fontWeight: 700, padding: "4px 9px", background: "#f0fdf4", borderRadius: 6, textDecoration: "none", flexShrink: 0 }}>📥 Respuesta</a>
+                : c.lastSent?.url
+                ? <a href={c.lastSent.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: F(11), color: "#1d4ed8", fontWeight: 700, padding: "4px 9px", background: "#eff6ff", borderRadius: 6, textDecoration: "none", flexShrink: 0 }}>📤 Envío</a>
+                : null
+              }
+            </div>
+
+            {isOpen && (
+              <div style={{ padding: "10px 12px", borderTop: "1px solid #f1f5f9", background: "#fafafa" }}>
+                {[
+                  c.firstSent && { lbl: "🚀 Primer envío", color: "#1d4ed8", bg: "#eff6ff", ...c.firstSent },
+                  c.lastSent && c.lastSent.url !== c.firstSent?.url && { lbl: "🔁 Último follow-up", color: "#d97706", bg: "#fffbeb", ...c.lastSent },
+                  c.lastRecv && { lbl: "💬 Última respuesta", color: "#059669", bg: "#f0fdf4", ...c.lastRecv, isRecv: true },
+                ].filter(Boolean).map((item, i) => (
+                  <div key={i} style={{ marginBottom: 8, padding: "8px 10px", background: item.bg, borderRadius: 6, border: `0.5px solid ${item.color}33` }}>
+                    <div style={{ fontSize: F(10), color: item.color, fontWeight: 700, textTransform: "uppercase", marginBottom: 3 }}>{item.lbl}</div>
+                    <div style={{ fontSize: F(12), fontWeight: 600, color: "#0f172a" }}>{item.subject}</div>
+                    <div style={{ fontSize: F(11), color: "#64748b" }}>{fDate(item.date?.slice(0, 10) || "")}</div>
+                    {item.snippet && <div style={{ fontSize: F(11), color: "#475569", fontStyle: "italic", marginTop: 3, padding: "4px 6px", background: "white", borderRadius: 4 }}>"{item.snippet.slice(0, 120)}…"</div>}
+                    {item.url && <a href={item.url} target="_blank" rel="noreferrer" style={{ fontSize: F(11), color: item.color, fontWeight: 600, display: "block", marginTop: 4 }}>Abrir en Gmail →</a>}
+                  </div>
+                ))}
+                {c.timeline?.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: F(10), color: "#94a3b8", fontWeight: 700, textTransform: "uppercase", marginBottom: 5 }}>Historial ({c.timeline.length})</div>
+                    {c.timeline.map((m, i) => (
+                      <div key={i} style={{ display: "flex", gap: 8, padding: "5px 8px", background: "white", borderRadius: 5, marginBottom: 3, borderLeft: `3px solid ${m.type === "sent" ? "#3b82f6" : "#22c55e"}` }}>
+                        <span style={{ flexShrink: 0 }}>{m.type === "sent" ? "📤" : "📥"}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: F(11), fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject}</div>
+                          <div style={{ fontSize: F(10), color: "#94a3b8" }}>{fDate(m.date?.slice(0, 10) || "")}</div>
+                        </div>
+                        {m.url && <a href={m.url} target="_blank" rel="noreferrer" style={{ fontSize: F(10), color: "#1d4ed8", alignSelf: "center", flexShrink: 0 }}>abrir</a>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!c.firstSent && !c.lastSent && <div style={{ fontSize: F(11), color: "#94a3b8", textAlign: "center", padding: "8px 0" }}>Sin historial. Presiona 🔄 Actualizar.</div>}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// PAGE — componente principal
+// ══════════════════════════════════════════════════════
+function useW() {
+  const [w, setW] = useState(900);
+  useEffect(() => {
+    setW(window.innerWidth);
+    const h = () => setW(window.innerWidth);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+  return w;
+}
+
+export default function Page() {
+  const w = useW();
+  const mob = w < 768;
+
+  // ── Estado persistido (auto-save) ───────────────────
+  const [projects, setProjects] = useDB("projects", INIT_PROJECTS);
+  const [follows,  setFollows]  = useDB("follows",  INIT_FOLLOWS);
+  const [boss,     setBoss]     = useDB("boss",     INIT_BOSS);
+  const [clockData,setClockData]= useDB("clock",    normClock);
+  const [cotiz,    setCotiz]    = useDB("cotiz",    []);
+  const [convenio, setConvenio] = useDB("convenio", []);
+  const [bandeja,  setBandeja]  = useDB("bandeja",  []);
+  const [syncSt,   setSyncSt]   = useDB("sync_st",  { reloj: "idle", gmail: "idle", cotiz: "idle" });
+  const [syncMsg,  setSyncMsg]  = useDB("sync_msg", { reloj: "", gmail: "", cotiz: "" });
+
+  // ── Estado UI (no persistido) ───────────────────────
+  const [view,        setView]       = useState("dash");  // "dash" | "project" | "chat"
+  const [sel,         setSel]        = useState(null);
+  const [projTab,     setProjTab]    = useState("overview");
+  const [clockMonth,  setClockMonth] = useState("2026-04");
+  const [clockOpen,   setClockOpen]  = useState(false);
+  const [notesDraft,  setNotesDraft] = useState("");
+  const [newTask,     setNewTask]    = useState("");
+  const [editId,      setEditId]     = useState(null);
+  const [showForm,    setShowForm]   = useState(false);
+  const [form,        setForm]       = useState({ name: "", budget: "", stage: "Formulación", status: "Pendiente", deadline: "", financier: "GORE", program: "", desc: "", notes: "", licitId: "" });
+  const [emailForm,   setEmailForm]  = useState({ from: "", subject: "", date: "", body: "" });
+  const [addingEmail, setAddingEmail]= useState(false);
+  const [renamingId,  setRenamingId] = useState(null);
+  const [renameVal,   setRenameVal]  = useState("");
+  const [extracting,  setExtracting] = useState(false);
+  const [fetchLicit,  setFetchLicit] = useState(null);
+  const [genSum,      setGenSum]     = useState(false);
+  const [msgs,        setMsgs]       = useState([{ role: "assistant", content: "Hola Alexis 👋\n\nAsistente SECPLA activo. Conozco toda tu cartera, seguimientos y cotizaciones SNSM 2025.\n\nEjemplos:\n• ¿Qué urgencias tengo hoy?\n• ¿Qué empresas no han cotizado SNSM?\n• Resumen p5 para reunión" }]);
+  const [chatInput,   setChatInput]  = useState("");
+  const [chatLoading, setChatLoading]= useState(false);
+  const chatRef  = useRef(null);
+  const fileRef  = useRef(null);
+
+  // Sync: flags de carga
+  const [loadingReloj, setLoadingReloj] = useState(false);
+  const [loadingGmail, setLoadingGmail] = useState(false);
+  const [loadingCotiz, setLoadingCotiz] = useState(false);
+
+  const proj = projects.find(p => p.id === sel);
+
+  // Sync notas al seleccionar proyecto
+  useEffect(() => {
+    if (sel) { const p = projects.find(x => x.id === sel); if (p) setNotesDraft(p.notes || ""); }
+  }, [sel]);
+
+  // ── Helpers ─────────────────────────────────────────
+  const setStatus = (key, st, msg) => {
+    setSyncSt(p => ({ ...p, [key]: st }));
+    setSyncMsg(p => ({ ...p, [key]: msg }));
+  };
+
+  const upProject = updater => setProjects(prev => prev.map(p => p.id === sel ? updater(p) : p));
+
+  const resolveFollow = (id, action = "resolve") => setFollows(prev => prev.map(f => {
+    if (f.id !== id) return f;
+    return action === "reopen" ? { ...f, status: "activo", resolvedAt: null } : { ...f, status: "resuelto", resolvedAt: new Date().toISOString().slice(0, 10) };
+  }));
+
+  const addFollow = newF => setFollows(prev => [...prev, newF]);
+
+  // Bandeja → crear seguimiento
+  const bandejaFollow = m => {
+    const id = "inbox_" + m.messageId;
+    if (follows.find(f => f.id === id)) return;
+    setFollows(prev => [...prev, {
+      id,
+      projectId: "",
+      urgency: "media",
+      subject: m.subject,
+      to: m.fromName || m.from,
+      context: m.snippet || "",
+      sentDate: new Date().toISOString().slice(0, 10),
+      daysPending: m.daysSinceLastMsg || 0,
+      status: "activo",
+      threadId: m.threadId,
+      threadUrl: m.threadUrl,
+    }]);
+    // Ocultar de bandeja
+    bandejaDiscard(m.threadId);
+  };
+
+  const bandejaDiscard = threadId => {
+    const prev = dbGet("bandeja_discarded", []);
+    if (!prev.includes(threadId)) {
+      dbSet("bandeja_discarded", [...prev, threadId]);
     }
-    setCheckingClock(false);
+    // Forzar re-render de bandeja
+    setBandeja(p => [...p]);
   };
 
-  // ── syncReadReceipts: lee acuses de lectura desde Gmail ─────────────
-  const syncReadReceipts = async (silent=false) => {
-    if(!silent) setSyncStatus(p=>({...p,acuses:{state:"loading",ts:null,msg:"Leyendo acuses de lectura..."}}));
-    setSyncingReceipts(true);
-    const startTs = new Date().toISOString();
-    try {
-      const res = await fetch("/api/ai", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ type:"read_receipts_sync", since:"2026/01/01" })
-      }).catch(netErr=>{throw Object.assign(new Error(netErr.message),{name:"TypeError",code:"NETWORK"});});
-      if(!res.ok){
-        const errData = await res.json().catch(()=>({}));
-        const code = String(errData.errorCode||res.status);
-        const hint = res.status===400?"Config servidor — verificar route.js":
-                     res.status===401||res.status===403?"Sin autorización Google":
-                     res.status>=500?"Error interno del servidor":
-                     errData.errorMessage||res.statusText||"Error de red";
-        const msg = `HTTP_${code}: ${hint}`;
-        setSyncStatus(p=>({...p,acuses:{state:"error",ts:startTs,msg,code:`HTTP_${code}`}}));
-        addSchedLog("acuses","error",msg,`HTTP_${code}`);
-        return;
-      }
-      const data = await res.json();
-      if(data.error){
-        const msg = `${data.errorCode}: ${data.errorMessage}`;
-        setSyncStatus(p=>({...p,acuses:{state:"error",ts:startTs,msg,code:data.errorCode}}));
-        addSchedLog("acuses","error",msg,data.errorCode);
-        return;
-      }
-      let receipts;
-      try { receipts = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
-      catch(parseErr) {
-        const msg = `JSON_PARSE: ${parseErr.message} — respuesta: ${(data.text||"").slice(0,80)}`;
-        setSyncStatus(p=>({...p,acuses:{state:"error",ts:startTs,msg,code:"JSON_PARSE"}}));
-        addSchedLog("acuses","error",msg,"JSON_PARSE");
-        return;
-      }
-      if(Array.isArray(receipts)){
-        setReadReceipts(receipts);
-        S.set("sp_receipts", receipts);
-        const totalConf = receipts.reduce((a,e)=>a+(e.recipients?.filter(r=>r.readAt).length||0),0);
-        const msg = `✓ ${receipts.length} correos · ${totalConf} confirmaciones de lectura`;
-        setSyncStatus(p=>({...p,acuses:{state:"ok",ts:startTs,msg}}));
-        addSchedLog("acuses","ok",msg,null);
-      } else {
-        const msg = "EMPTY: respuesta no es un array válido";
-        setSyncStatus(p=>({...p,acuses:{state:"warn",ts:startTs,msg}}));
-        addSchedLog("acuses","warn",msg,null);
-      }
-    } catch(e) {
-      const code = e.name==="AbortError"?"TIMEOUT":e.name==="TypeError"?"NETWORK":e.code||"EXCEPTION";
-      const msg = `${code}: ${e.message}`;
-      setSyncStatus(p=>({...p,acuses:{state:"error",ts:startTs,msg,code}}));
-      addSchedLog("acuses","error",msg,code);
-    }
-    setSyncingReceipts(false);
+  // ══════════════════════════════════════════════════
+  // SINCRONIZACIÓN
+  // ══════════════════════════════════════════════════
+
+  const syncReloj = async (silent = false) => {
+    if (!silent) setStatus("reloj", "loading", "Leyendo Gmail...");
+    setLoadingReloj(true);
+    const { ok, data, code, msg } = await apiFetch({ type: "clock_sync" }, "clock_sync");
+    if (!ok) { setStatus("reloj", "error", msg || code); setLoadingReloj(false); return; }
+    if (data.warning === "NO_GOOGLE_CREDENTIALS") { setStatus("reloj", "warn", "Sin credenciales Google"); setLoadingReloj(false); return; }
+    const parsed = parseJSON(data.text, []);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      const gmailDates = new Set(parsed.map(r => r.date));
+      const hist = normClock.filter(r => !gmailDates.has(r.date));
+      const merged = [...hist, ...parsed].sort((a, b) => a.date.localeCompare(b.date));
+      setClockData(merged);
+      const today = parsed.find(r => r.date === new Date().toISOString().slice(0, 10));
+      setStatus("reloj", "ok", today ? `✓ Hoy: ${today.entrada || "—"} → ${today.salida || "en curso"}` : `✓ ${parsed.length} días`);
+    } else { setStatus("reloj", "warn", "Sin registros en Gmail"); }
+    setLoadingReloj(false);
   };
 
-  // ── addSchedLog: añade una entrada al registro de ejecuciones ─────
-  const addSchedLog = (type, result, msg, code) => {
-    const entry = {
-      id: Math.random().toString(36).slice(2,7),
-      type,         // "reloj" | "acuses"
-      result,       // "ok" | "warn" | "error"
-      msg,
-      code: code||null,
-      ts: new Date().toISOString(),
-    };
-    setSchedLog(prev => {
-      const updated = [entry, ...prev].slice(0,50); // máximo 50 entradas
-      S.set("sp_sched_log", updated);
-      return updated;
-    });
+  const syncGmail = async (silent = false) => {
+    if (!silent) setStatus("gmail", "loading", "Escaneando bandeja...");
+    setLoadingGmail(true);
+    const since = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10).replace(/-/g, "/");
+    const allKw = [...new Set(Object.values(PROJ_KW).flat())];
+    const { ok, data, code, msg } = await apiFetch({ type: "gmail_scan", since, keywords: allKw }, "gmail_scan");
+    if (!ok) { setStatus("gmail", "error", msg || code); setLoadingGmail(false); return; }
+    if (data.warning === "NO_GOOGLE_CREDENTIALS") { setStatus("gmail", "warn", "Sin credenciales Google"); setLoadingGmail(false); return; }
+    const parsed = parseJSON(data.text, []);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      setBandeja(parsed);
+      setStatus("gmail", "ok", `✓ ${parsed.length} correos en bandeja`);
+    } else { setStatus("gmail", "warn", "Sin correos relevantes"); }
+    setLoadingGmail(false);
   };
 
-  // ── MOTOR DE SCHEDULING AUTOMÁTICO ───────────────────────────────
-  // Funciona como un cron interno: verifica cada 60 segundos si
-  // la hora Chile actual coincide con algún slot configurado.
-  // Si coincide Y no ejecutó ese slot en las últimas 50 minutos → ejecuta.
-  // Usa refs para evitar closures stale.
-  const syncClockRef = useRef(null);
-  const syncReceiptsRef = useRef(null);
-  syncClockRef.current = syncClockFromGmail;
-  syncReceiptsRef.current = syncReadReceipts;
+  const syncCotiz = async (silent = false) => {
+    if (!silent) setStatus("cotiz", "loading", "Analizando cotizaciones...");
+    setLoadingCotiz(true);
+    const { ok, data, code, msg } = await apiFetch({ type: "cotizaciones_track" }, "cotizaciones_track");
+    if (!ok) { setStatus("cotiz", "error", msg || code); setLoadingCotiz(false); return; }
+    if (data.warning === "NO_GOOGLE_CREDENTIALS") { setStatus("cotiz", "warn", "Sin credenciales Google"); setLoadingCotiz(false); return; }
+    const parsed = parseJSON(data.text, []);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      setCotiz(parsed);
+      const conCotiz = parsed.filter(c => c.estado === "cotizacion_recibida").length;
+      setStatus("cotiz", "ok", `✓ ${conCotiz}/${parsed.length} cotizaciones recibidas`);
+    } else { setStatus("cotiz", "warn", "Sin datos de Gmail"); }
+    setLoadingCotiz(false);
+  };
 
-  useEffect(()=>{
-    // Helper: hora actual en Chile "HH:MM"
-    const nowChileHHMM = () => {
-      const d = new Date(new Date().toLocaleString("en-US",{timeZone:"America/Santiago"}));
-      return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
-    };
-    // Helper: día de semana Chile (1=Lun … 5=Vie)
-    const dowChile = () => {
-      const d = new Date(new Date().toLocaleString("en-US",{timeZone:"America/Santiago"}));
-      return d.getDay();
-    };
-    // Helper: ¿el slot ya ejecutó recientemente? (últimos 50 min)
-    const alreadyRan = (type, slotHHMM) => {
-      const key = `sp_last_auto_${type}_${slotHHMM.replace(":","_")}`;
-      const last = localStorage.getItem(key);
-      if(!last) return false;
-      const mins = (Date.now()-new Date(last).getTime())/60000;
-      return mins < 50;
-    };
-    const markRan = (type, slotHHMM) => {
-      const key = `sp_last_auto_${type}_${slotHHMM.replace(":","_")}`;
-      localStorage.setItem(key, new Date().toISOString());
-    };
+  // ── Scheduler automático ─────────────────────────────
+  const syncRelojRef = useRef(null); syncRelojRef.current = syncReloj;
+  const syncGmailRef = useRef(null); syncGmailRef.current = syncGmail;
+  const syncCotizRef = useRef(null); syncCotizRef.current = syncCotiz;
 
+  useEffect(() => {
+    const nowCLT = () => { const d = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Santiago" })); return { hhmm: `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`, dow: d.getDay() }; };
+    const did = (k, slot) => { const key = `secpla_ran_${k}_${slot.replace(":","_")}`; const v = typeof window!=="undefined" ? localStorage.getItem(key) : null; return v && (Date.now()-new Date(v).getTime())/60000 < 50; };
+    const mark = (k, slot) => { if(typeof window!=="undefined") localStorage.setItem(`secpla_ran_${k}_${slot.replace(":","_")}`, new Date().toISOString()); };
     const tick = () => {
-      const dow = dowChile();
-      if(dow<1||dow>5) return; // solo L-V
-      const hhmm = nowChileHHMM();
-
-      // ── Reloj: 08:00 · 13:30 · 17:30 ──
-      for(const slot of ["08:00","13:30","17:30"]){
-        if(hhmm===slot && !alreadyRan("reloj",slot)){
-          markRan("reloj",slot);
-          syncClockRef.current(true); // silent=true
-        }
-      }
-      // ── Acuses: 08:05 · 11:00 · 14:00 · 17:35 ──
-      for(const slot of ["08:05","11:00","14:00","17:35"]){
-        if(hhmm===slot && !alreadyRan("acuses",slot)){
-          markRan("acuses",slot);
-          syncReceiptsRef.current(true);
-        }
-      }
+      const { hhmm, dow } = nowCLT();
+      if (dow < 1 || dow > 5) return;
+      [["08:00","13:30","17:30"]].flat().forEach(s => { if (hhmm===s && !did("rel",s)) { mark("rel",s); syncRelojRef.current(true); } });
+      [["09:00","15:00"]].flat().forEach(s => { if (hhmm===s && !did("gml",s)) { mark("gml",s); syncGmailRef.current(true); } });
+      [["09:30","15:30"]].flat().forEach(s => { if (hhmm===s && !did("ctz",s)) { mark("ctz",s); syncCotizRef.current(true); } });
     };
-
-    // Ejecutar inmediatamente al montar (por si el tab se abrió justo en un slot)
     tick();
-    // Luego verificar cada 60 segundos
-    schedulerRef.current = setInterval(tick, 60000);
-    return () => {
-      if(schedulerRef.current) clearInterval(schedulerRef.current);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[]);
-  const[sel,setSel]=useState(null);const[tab,setTab]=useState("overview");const[view,setView]=useState("dash");
-  // ── NUEVOS ESTADOS ─────────────────────────────────
-  const[mainTab,setMainTab]=useState("dash"); // "dash" | "answered" | "calendar"
-  const[calendarEvents,setCalendarEvents]=useState(()=>S.get("sp_cal")||[]);
-  const[answeredRequests,setAnsweredRequests]=useState(()=>S.get("sp_answered")||[]);
-  const[driveSync,setDriveSync]=useState(()=>S.get("sp_drive")||{});
-  const[syncingDrive,setSyncingDrive]=useState(false);
-  const[syncingCal,setSyncingCal]=useState(false);
-  const[verifyingTask,setVerifyingTask]=useState(null);
-  // syncStatus: estado visual por cada botón de sincronización
-  // state: "idle"|"loading"|"ok"|"warn"|"error"
-  const[syncStatus,setSyncStatus]=useState(()=>S.get("sp_sync_status")||{
-    drive:   {state:"idle",ts:null,msg:""},
-    cal:     {state:"idle",ts:null,msg:""},
-    gmail:   {state:"idle",ts:null,msg:""},
-    reloj:   {state:"idle",ts:null,msg:""},
-    convenio:{state:"idle",ts:null,msg:""},
-    acuses:  {state:"idle",ts:null,msg:""},
-  });
-  const saveSyncStatus=s=>{setSyncStatus(s);S.set("sp_sync_status",s);};
-  // ──────────────────────────────────────────────────
-  const[msgs,setMsgs]=useState([{role:"assistant",content:"Hola Alexis 👋\n\nSoy tu Asistente SECPLA. Conozco tu cartera, seguimientos de Gmail, licitaciones y documentos.\n\nEjemplos:\n• ¿Qué seguimientos están críticos?\n• ¿Cuándo vence el plazo de la sala de monitoreo?\n• Resumen ejecutivo para reunión con el Alcalde"}]);
-  const[input,setInput]=useState("");const[loading,setLoading]=useState(false);
-  const[showForm,setShowForm]=useState(false);const[form,setForm]=useState(EF);const[editId,setEditId]=useState(null);
-  const[extracting,setExtracting]=useState(false);const[fetchingLicit,setFetchingLicit]=useState(null);
-  const[renamingId,setRenamingId]=useState(null);const[renameVal,setRenameVal]=useState("");
-  const[notesDraft,setNotesDraft]=useState("");const[genSum,setGenSum]=useState(false);
-  const[newTask,setNewTask]=useState("");
-  const[emailForm,setEmailForm]=useState({from:"",subject:"",date:"",body:""});const[addingEmail,setAddingEmail]=useState(false);
-  const chatRef=useRef(null);const fileRef=useRef(null);
+    const iv = setInterval(tick, 60000);
+    return () => clearInterval(iv);
+  }, []);
 
-  useEffect(()=>{if(sel){const p=projects.find(x=>x.id===sel);if(p)setNotesDraft(p.notes||"");}},[sel]);
+  // ── Acciones sobre proyectos ─────────────────────────
+  const saveNotes = () => { upProject(p => ({ ...p, notes: notesDraft })); };
 
-  const saveP=ps=>{setProjects(ps);S.set("sp_proj",ps);};
-  const saveGf=fs=>{setGf(fs);S.set("sp_gf",fs);};
-  const saveBoss=bs=>{setBoss(bs);S.set("sp_boss",bs);};
-  const saveCal=evs=>{setCalendarEvents(evs);S.set("sp_cal",evs);};
-  const saveAnswered=ar=>{setAnsweredRequests(ar);S.set("sp_answered",ar);};
-  const saveDriveSync=ds=>{setDriveSync(ds);S.set("sp_drive",ds);};
-
-  const proj=projects.find(p=>p.id===sel);
-  const resolveFollow=(id)=>saveGf(gf.map(f=>f.id===id?{...f,status:"resuelto",resolvedAt:new Date().toISOString().slice(0,10)}:f));
-
-  // ── HELPERS ─────────────────────────────────────────
-  const pendingGf=gf.filter(f=>f.status==="pendiente");
-  const criticalGf=pendingGf.filter(f=>f.urgency==="crítica");
-  const totalBudget=projects.reduce((a,p)=>a+(p.budget||0),0);
-
-  // Eventos de calendario para un proyecto específico
-  const eventsForProject = (projId) =>
-    calendarEvents.filter(e => e.projectId === projId || detectProject((e.title||"")+(e.description||"")) === projId);
-
-  // ── SINCRONIZAR DRIVE ─────────────────────────────
-  // ── DRIVE SYNC — lee carpetas reales con feedback visual ────────────
-  const syncDrive = async () => {
-    setSyncingDrive(true);
-    setSyncStatus(p=>({...p,drive:{state:"loading",ts:null,msg:"Leyendo carpetas Drive..."}}));
-    try {
-      const res = await fetch("/api/ai", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          type: "drive_sync",
-          projects: projects.map(p=>({
-            id: p.id,
-            name: p.name,
-            code: p.licitId||"",
-            keywords: PROJ_KEYWORDS[p.id]||[]
-          }))
-        })
-      });
-      const data = await res.json();
-      if(data.warning==="NO_GOOGLE_CREDENTIALS"){
-        setSyncStatus(p=>({...p,drive:{state:"warn",ts:new Date().toISOString(),msg:"Sin credenciales Google — configura GOOGLE_REFRESH_TOKEN en Vercel"}}));
-        setSyncingDrive(false);
-        return;
-      }
-      if(data.error){
-        setSyncStatus(p=>({...p,drive:{state:"error",ts:new Date().toISOString(),msg:`${data.errorCode}: ${data.errorMessage}`,code:data.errorCode}}));
-        setSyncingDrive(false);
-        return;
-      }
-      let updates;
-      try { updates = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
-      catch { updates = []; }
-      if(Array.isArray(updates) && updates.length > 0){
-        const now = new Date().toISOString();
-        const newDs = {...driveSync};
-        const upd = projects.map(p => {
-          const u = updates.find(x=>x.projectId===p.id);
-          if(!u) return p;
-          newDs[p.id] = {
-            lastSync: now, summary: u.summary||"",
-            docsFound: u.docsFound||[], lastDocDate: u.lastDocDate||""
-          };
-          return {
-            ...p,
-            desc: u.desc || p.desc,
-            stage: u.stage || p.stage,
-            status: u.status || p.status,
-            notes: u.notes
-              ? (p.notes ? p.notes+"\n\n[Drive "+now.slice(0,10)+"] "+u.notes : u.notes)
-              : p.notes,
-          };
-        });
-        saveP(upd);
-        saveDriveSync(newDs);
-        const nProj=updates.length;
-        setSyncStatus(p=>({...p,drive:{state:"ok",ts:new Date().toISOString(),msg:`✓ ${nProj} proyecto(s) actualizados desde Drive`}}));
-      } else {
-        setSyncStatus(p=>({...p,drive:{state:"warn",ts:new Date().toISOString(),msg:"Drive: sin cambios desde última sincronización"}}));
-      }
-    } catch(e){
-      console.error("Drive sync error", e);
-      setSyncStatus(p=>({...p,drive:{state:"error",ts:new Date().toISOString(),msg:`Error: ${e.message}`,code:"DRIVE_EXCEPTION"}}));
-    }
-    setSyncingDrive(false);
-  };
-
-  // ── SINCRONIZAR CALENDARIO ────────────────────────
-  // Llama a /api/ai con type:"calendar_sync" → devuelve eventos de los próximos 30 días
-  // clasificados por proyecto usando PROJ_KEYWORDS.
-  const syncCalendar = async () => {
-    setSyncingCal(true);
-    setSyncStatus(p=>({...p,cal:{state:"loading",ts:null,msg:"Buscando reuniones en Gmail..."}}));
-    try {
-      const res = await fetch("/api/ai", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          type: "calendar_sync",
-          projects: projects.map(p=>({
-            id: p.id,
-            name: p.name,
-            keywords: PROJ_KEYWORDS[p.id]||[]
-          }))
-        })
-      });
-      const data = await res.json();
-      let evs;
-      try { evs = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
-      catch { evs = []; }
-      if(Array.isArray(evs)){
-        const classified = evs.map(e => ({
-          ...e,
-          projectId: e.projectId || detectProject((e.title||"")+(e.description||""))
-        }));
-        // Preservar eventos agregados manualmente (sin messageId de Gmail)
-        const manual = calendarEvents.filter(e => !e.id || e.id.startsWith("manual_"));
-        const merged = [...manual, ...classified.filter(e => !manual.find(m=>m.title===e.title&&m.start===e.start))];
-        saveCal(merged);
-        setSyncStatus(p=>({...p,cal:{state:"ok",ts:new Date().toISOString(),msg:`✓ ${merged.length} evento(s) · ${merged.filter(e=>e.start>=new Date().toISOString().slice(0,10)).length} próximos`}}));
-      } else {
-        setSyncStatus(p=>({...p,cal:{state:"warn",ts:new Date().toISOString(),msg:"No se encontraron reuniones próximas"}}));
-      }
-    } catch(e){
-      console.error("Calendar sync error", e);
-      setSyncStatus(p=>({...p,cal:{state:"error",ts:new Date().toISOString(),msg:`Error: ${e.message}`,code:"CAL_EXCEPTION"}}));
-    }
-    setSyncingCal(false);
-  };
-
-  // ── GMAIL SCAN — escaneo periódico de correos nuevos ─────────────
-  // Detecta correos que requieren acción y los agrega como seguimientos
-  const[convenioData,setConvenioData]=useState(()=>S.get("sp_convenio")||[]);
-  const[trackingConvenio,setTrackingConvenio]=useState(false);
-
-  const trackConvenios = async () => {
-    setTrackingConvenio(true);
-    try {
-      const res = await fetch("/api/ai", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          type: "convenio_track",
-          projects: projects.map(p=>({
-            id: p.id, name: p.name,
-            codigoProyecto: p.codigoProyecto||"",
-            plazoEjecucionFin: p.convenio?.plazoEjecucionFin||p.deadline||"",
-            plazoConvenioFin: p.convenio?.plazoConvenioFin||""
-          }))
-        })
-      });
-      const data = await res.json();
-      let result;
-      try { result = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
-      catch { result = []; }
-      if(Array.isArray(result) && result.length > 0){
-        setConvenioData(result);
-        S.set("sp_convenio", result);
-        // Actualizar deadline en proyectos si hay datos nuevos
-        const upd = projects.map(p=>{
-          const cd = result.find(c=>c.projectId===p.id);
-          if(!cd) return p;
-          return {
-            ...p,
-            deadline: cd.plazoEjecucionFin || p.deadline,
-            convenio: { ...(p.convenio||{}),
-              plazoEjecucionFin: cd.plazoEjecucionFin,
-              plazoConvenioFin: cd.plazoConvenioFin,
-              modificacionesPendientes: cd.modificacionesPendientes||[]
-            }
-          };
-        });
-        saveP(upd);
-      }
-    } catch(e){ console.error("Convenio track error", e); }
-    setTrackingConvenio(false);
-  };
-
-  const[scanningGmail,setScanningGmail]=useState(false);
-  const[lastGmailScan,setLastGmailScan]=useState(()=>S.get("sp_last_scan")||null);
-
-  const scanGmail = async () => {
-    setScanningGmail(true);
-    setSyncStatus(p=>({...p,gmail:{state:"loading",ts:null,msg:"Escaneando correos SECPLA..."}}));
-    try {
-      const since = new Date(Date.now() - 7*86400000).toISOString().slice(0,10).replace(/-/g,"/");
-      const res = await fetch("/api/ai", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          type: "gmail_scan",
-          since,
-          projects: projects.map(p=>({
-            id: p.id, name: p.name,
-            keywords: PROJ_KEYWORDS[p.id]||[]
-          }))
-        })
-      });
-      const data = await res.json();
-      // Si el servidor retorna warning (ej: sin credenciales), manejarlo
-      if(data.warning==="NO_GOOGLE_CREDENTIALS"){
-        setSyncStatus(p=>({...p,gmail:{state:"warn",ts:new Date().toISOString(),msg:"Sin credenciales Google — configura GOOGLE_REFRESH_TOKEN en Vercel"}}));
-        setScanningGmail(false);
-        return;
-      }
-      if(data.error){
-        setSyncStatus(p=>({...p,gmail:{state:"error",ts:new Date().toISOString(),msg:`${data.errorCode}: ${data.errorMessage}`,code:data.errorCode}}));
-        setScanningGmail(false);
-        return;
-      }
-      let found;
-      try { found = JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim()); }
-      catch { found = []; }
-
-      // newFollows declarado FUERA del if para evitar ReferenceError
-      let newFollows = [];
-      if(Array.isArray(found) && found.length > 0){
-        newFollows = found
-          .filter(m => m.requiresResponse && m.type !== "informativo")
-          .filter(m => !gf.find(f => f.threadUrl?.includes(m.threadId||m.messageId||"")))
-          .map(m => ({
-            id: "scan_"+m.messageId,
-            projectId: m.projectId||"",
-            urgency: m.urgency||"media",
-            subject: m.subject||"(sin asunto)",
-            to: m.from||"",
-            context: m.summary||"",
-            sentDate: m.date||new Date().toISOString().slice(0,10),
-            daysPending: Math.floor((Date.now()-new Date(m.date||Date.now()).getTime())/86400000),
-            status: "pendiente",
-            threadUrl: m.emailUrl||"https://mail.google.com/mail/u/0/#inbox/"+(m.messageId||""),
-            autoDetected: true,
-          }));
-        if(newFollows.length > 0) saveGf([...gf, ...newFollows]);
-      }
-      const now = new Date().toISOString();
-      setLastGmailScan(now);
-      S.set("sp_last_scan", now);
-      const nNew = newFollows.length;
-      const nFound = Array.isArray(found)?found.length:0;
-      setSyncStatus(p=>({...p,gmail:{state:"ok",ts:now,msg:`✓ ${nFound} correos · ${nNew>0?`${nNew} nuevo(s) seguimiento(s)`:"sin nuevos"}`}}));
-    } catch(e){
-      console.error("Gmail scan error", e);
-      setSyncStatus(p=>({...p,gmail:{state:"error",ts:new Date().toISOString(),msg:`Error: ${e.message}`,code:"GMAIL_EXCEPTION"}}));
-    }
-    setScanningGmail(false);
-  };
-
-  // ── VERIFICAR TAREA COMPLETADA EN GMAIL ──────────
-  // Cuando el usuario marca una tarea/solicitud como completada,
-  // busca en Gmail enviados si hay correo relacionado.
-  // Actualiza answeredRequests con la evidencia encontrada.
-  const verifyCompletion = async (taskId, taskText, projId) => {
-    setVerifyingTask(taskId);
-    try {
-      const res = await fetch("/api/ai", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          type: "verify_sent",
-          taskId,
-          taskText,
-          projectId: projId,
-          projectName: projects.find(p=>p.id===projId)?.name || "",
-          // Keywords del proyecto para buscar en Gmail
-          keywords: PROJ_KEYWORDS[projId] || []
-        })
-      });
-      const data = await res.json();
-      // Esperamos: { found: bool, subject, sentDate, sentTime, emailUrl, snippet, howAnswered, pendingReply }
-      let result;
-      try { result = JSON.parse((data.text||"{}").replace(/```json|```/g,"").trim()); }
-      catch { result = {found:false}; }
-
-      const entry = {
-        id: uid(),
-        taskId,
-        taskText,
-        projectId: projId,
-        verifiedAt: new Date().toISOString(),
-        found: result.found || false,
-        subject: result.subject || "",
-        sentDate: result.sentDate || "",
-        sentTime: result.sentTime || "",
-        emailUrl: result.emailUrl || "",
-        snippet: result.snippet || "",
-        howAnswered: result.howAnswered || "",
-        pendingReply: result.pendingReply || false,
-        pendingReplyNote: result.pendingReplyNote || "",
-      };
-      saveAnswered([...answeredRequests, entry]);
-    } catch(e){ console.error("Verify error", e); }
-    setVerifyingTask(null);
-  };
-
-  // ── TOGGLE BOSS con verificación ─────────────────
-  const toggleBoss = (id, note="") => {
-    const b = boss.find(x=>x.id===id);
-    const newStatus = b?.status==="pendiente" ? "completado" : "pendiente";
-    saveBoss(boss.map(x=>x.id===id ? {
-      ...x,
-      status: newStatus,
-      completedNote: note||x.completedNote,
-      completedAt: new Date().toISOString().slice(0,10)
-    } : x));
-    // Al completar → verificar en Gmail si envié algo
-    if(newStatus === "completado" && b){
-      verifyCompletion(id, b.task, b.projectId);
-    }
-  };
-
-  // ── LICITACIÓN ────────────────────────────────────
-  const fetchLicit=async(p)=>{
-    if(!p.licitId?.trim())return;setFetchingLicit(p.id);
-    try{
-      const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"licit",licitId:p.licitId})});
-      const data=await res.json();
-      let ld;try{ld=JSON.parse((data.text||"{}").replace(/```json|```/g,"").trim());}catch{ld={estado:"Desconocido",descripcion:"No se pudo extraer información."};}
-      saveP(projects.map(x=>x.id===p.id?{...x,licitData:ld,licitChecked:new Date().toISOString().slice(0,10)}:x));
-    }catch{}
-    setFetchingLicit(null);
-  };
-
-  // ── RESUMEN IA ────────────────────────────────────
-  const genSummary=async()=>{
-    if(!proj||!notesDraft.trim())return;setGenSum(true);
-    const upd=projects.map(p=>p.id===proj.id?{...p,notes:notesDraft}:p);saveP(upd);
-    try{
-      const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"summary",project:{name:proj.name,financier:proj.financier,program:proj.program,budget:fCLP(proj.budget),stage:proj.stage,status:proj.status},notes:notesDraft})});
-      const data=await res.json();
-      saveP(upd.map(p=>p.id===proj.id?{...p,aiSummary:data.text||""}:p));
-    }catch{}
+  const doGenSummary = async () => {
+    if (!proj || !notesDraft.trim()) return;
+    setGenSum(true);
+    upProject(p => ({ ...p, notes: notesDraft }));
+    const { ok, data } = await apiFetch({ type: "summary", project: { name: proj.name, financier: proj.financier, program: proj.program, budget: fCLP(proj.budget), stage: proj.stage, status: proj.status }, notes: notesDraft }, "summary");
+    if (ok) upProject(p => ({ ...p, notes: notesDraft, aiSummary: data.text || "" }));
     setGenSum(false);
   };
 
-  // ── CHAT CONTEXT ──────────────────────────────────
-  const buildCtx=()=>projects.map(p=>{
-    const ld=p.licitData;
-    const pf=gf.filter(f=>f.projectId===p.id&&f.status==="pendiente");
-    const evs=eventsForProject(p.id);
-    return `PROYECTO: ${p.name}\n- Presupuesto: ${fCLP(p.budget)} CLP\n- Financiamiento: ${p.financier} — ${p.program}\n- Etapa: ${p.stage} | Estado: ${p.status}\n- Vencimiento: ${fDate(p.deadline)}\n- Resumen: ${p.aiSummary||"—"}\n- Notas: ${p.notes||"—"}${p.licitId?`\n- Licitación: ${ld?`${ld.estado}, cierre ${fDate(ld.fechaCierre)}`:"sin datos"}`:""}${pf.length?`\n- Seguimientos pendientes: ${pf.map(f=>`${f.subject} → ${f.to}`).join(" | ")}`:""}${evs.length?`\n- Reuniones próximas: ${evs.map(e=>`${e.title} (${e.start})`).join(" | ")}`:""}`;
-  }).join("\n\n---\n\n");
-
-  const send=async()=>{
-    if(!input.trim()||loading)return;
-    const um={role:"user",content:input.trim()};const nm=[...msgs,um];
-    setMsgs(nm);setInput("");setLoading(true);
-    setTimeout(()=>chatRef.current?.scrollTo(0,chatRef.current.scrollHeight),50);
-    try{
-      const pf=gf.filter(f=>f.status==="pendiente");
-      const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({type:"chat",messages:nm,context:buildCtx(),follows:pf.map(f=>`[${f.urgency.toUpperCase()}] ${f.subject} → ${f.to} (${f.daysPending}d sin resp.)`).join("\n")})});
-      const data=await res.json();
-      setMsgs(m=>[...m,{role:"assistant",content:data.text||"Sin respuesta."}]);
-    }catch{setMsgs(m=>[...m,{role:"assistant",content:"Error de conexión."}]);}
-    setLoading(false);setTimeout(()=>chatRef.current?.scrollTo(0,chatRef.current.scrollHeight),100);
+  const doFetchLicit = async p => {
+    if (!p?.licitId?.trim()) return;
+    setFetchLicit(p.id);
+    const { ok, data } = await apiFetch({ type: "licit", licitId: p.licitId }, "licit");
+    if (ok) setProjects(prev => prev.map(x => x.id === p.id ? { ...x, licitData: parseJSON(data.text, { estado: "Desconocido" }), licitChecked: new Date().toISOString().slice(0, 10) } : x));
+    setFetchLicit(null);
   };
 
-  // ── UPLOAD DOC ────────────────────────────────────
-  const uploadDoc=async(e)=>{
-    const file=e.target.files[0];if(!file||!proj)return;setExtracting(true);
-    const reader=new FileReader();
-    reader.onload=async(ev)=>{
-      const b64=ev.target.result.split(",")[1];const isImg=file.type.startsWith("image/");
-      try{
-        const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({type:"doc",b64,mediaType:isImg?file.type:"application/pdf",isImg})});
-        const data=await res.json();
-        let ex;try{ex=JSON.parse((data.text||"{}").replace(/```json|```/g,"").trim());}catch{ex={summary:data.text?.slice(0,400)||"—"};}
-        saveP(projects.map(p=>p.id===proj.id?{...p,docs:[...p.docs,{id:uid(),name:file.name,docType:ex.docType||"Documento",uploadedAt:new Date().toISOString().slice(0,10),summary:ex.summary||"—",extracted:JSON.stringify(ex)}]}:p));
-      }catch{saveP(projects.map(p=>p.id===proj.id?{...p,docs:[...p.docs,{id:uid(),name:file.name,docType:"Documento",uploadedAt:new Date().toISOString().slice(0,10),summary:"Error al procesar.",extracted:"{}"}]}:p));}
+  const uploadDoc = async e => {
+    const file = e.target.files[0];
+    if (!file || !proj) return;
+    setExtracting(true);
+    const reader = new FileReader();
+    reader.onload = async ev => {
+      const b64 = ev.target.result.split(",")[1];
+      const isImg = file.type.startsWith("image/");
+      const { ok, data } = await apiFetch({ type: "doc", b64, mediaType: isImg ? file.type : "application/pdf", isImg }, "doc");
+      const ex = ok ? parseJSON(data.text, { summary: "—" }) : { summary: "Error al procesar." };
+      upProject(p => ({ ...p, docs: [...p.docs, { id: uid(), name: file.name, docType: ex.docType || "Documento", uploadedAt: new Date().toISOString().slice(0, 10), summary: ex.summary || "—", extracted: JSON.stringify(ex) }] }));
       setExtracting(false);
     };
-    reader.readAsDataURL(file);e.target.value="";
+    reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
-  const delDoc=id=>saveP(projects.map(p=>p.id===proj.id?{...p,docs:p.docs.filter(d=>d.id!==id)}:p));
-  const addTask=()=>{if(!newTask.trim()||!proj)return;saveP(projects.map(p=>p.id===proj.id?{...p,tasks:[...p.tasks,{id:uid(),text:newTask.trim(),status:"pending",createdAt:new Date().toISOString().slice(0,10)}]}:p));setNewTask("");};
-  const toggleTask=id=>saveP(projects.map(p=>p.id===proj.id?{...p,tasks:p.tasks.map(t=>t.id===id?{...t,status:t.status==="pending"?"done":"pending"}:t)}:p));
-  const delTask=id=>saveP(projects.map(p=>p.id===proj.id?{...p,tasks:p.tasks.filter(t=>t.id!==id)}:p));
-  const saveEmail=()=>{if(!emailForm.subject||!proj)return;saveP(projects.map(p=>p.id===proj.id?{...p,emails:[...p.emails,{...emailForm,id:uid()}]}:p));setEmailForm({from:"",subject:"",date:"",body:""});setAddingEmail(false);};
-  const delEmail=id=>saveP(projects.map(p=>p.id===proj.id?{...p,emails:p.emails.filter(e=>e.id!==id)}:p));
-  const commitRename=()=>{if(renameVal.trim())saveP(projects.map(p=>p.id===renamingId?{...p,name:renameVal.trim()}:p));setRenamingId(null);};
+  const addTask = () => { if (!newTask.trim() || !proj) return; upProject(p => ({ ...p, tasks: [...p.tasks, { id: uid(), text: newTask.trim(), status: "pending", createdAt: new Date().toISOString().slice(0, 10) }] })); setNewTask(""); };
+  const toggleTask = id => upProject(p => ({ ...p, tasks: p.tasks.map(t => t.id === id ? { ...t, status: t.status === "pending" ? "done" : "pending" } : t) }));
+  const delTask = id => upProject(p => ({ ...p, tasks: p.tasks.filter(t => t.id !== id) }));
+  const addEmail = () => { if (!emailForm.subject || !proj) return; upProject(p => ({ ...p, emails: [...p.emails, { ...emailForm, id: uid() }] })); setEmailForm({ from: "", subject: "", date: "", body: "" }); setAddingEmail(false); };
+  const delEmail = id => upProject(p => ({ ...p, emails: p.emails.filter(e => e.id !== id) }));
+  const delDoc = id => upProject(p => ({ ...p, docs: p.docs.filter(d => d.id !== id) }));
+  const commitRename = () => { if (renameVal.trim()) setProjects(prev => prev.map(p => p.id === renamingId ? { ...p, name: renameVal.trim() } : p)); setRenamingId(null); };
+  const toggleBoss = id => setBoss(prev => prev.map(b => b.id === id ? { ...b, status: b.status === "pendiente" ? "completado" : "pendiente", completedAt: new Date().toISOString().slice(0, 10) } : b));
 
-  // ── ESTILOS BASE ──────────────────────────────────
-  const inp={padding:"14px 16px",borderRadius:8,border:"1px solid #d1d5db",fontSize:F(14),width:"100%",boxSizing:"border-box",outline:"none",background:"white"};
-  const btn=(bg,c="#fff",e={})=>({padding:"13px 20px",borderRadius:8,background:bg,color:c,border:"none",cursor:"pointer",fontSize:F(13),fontWeight:700,...e});
-  const lbl={fontSize:F(12),fontWeight:700,color:"#374151",display:"block",marginBottom:5};
-  const scroll={overflowY:"auto",WebkitOverflowScrolling:"touch"};
+  // ── Chat ─────────────────────────────────────────────
+  const buildCtx = () => projects.map(p => {
+    const pf = follows.filter(f => f.projectId === p.id && f.status === "activo");
+    return `${p.name} | ${p.stage} | ${p.status} | ${fCLP(p.budget)} | ${p.financier}\nResumen: ${p.aiSummary || p.desc?.slice(0, 100) || "—"}${pf.length ? `\nSeguimientos: ${pf.map(f => f.subject).join("; ")}` : ""}`;
+  }).join("\n\n");
 
-  // ── LICITACIÓN CARD ───────────────────────────────
-  const LicitCard=({p})=>{
-    const ld=p.licitData;const isFetching=fetchingLicit===p.id;if(!p.licitId)return null;
-    return(
-      <div style={{background:"white",borderRadius:10,padding:16,border:`1px solid ${ld&&ld.estado!=="Desconocido"?(MPC[ld.estado]||"#e2e8f0")+"55":"#e2e8f0"}`}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:ld?12:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:F(16)}}>🏛️</span>
-            <div><div style={{fontSize:F(13),fontWeight:700,color:"#0f172a"}}>Mercado Público · {p.licitId}</div>{ld&&<div style={{fontSize:F(11),color:"#64748b",marginTop:2}}>{ld.nombre||"—"}</div>}</div>
-          </div>
-          <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            {ld&&<span style={{fontSize:F(11),padding:"3px 10px",borderRadius:8,background:(MPC[ld.estado]||"#94a3b8")+"18",color:MPC[ld.estado]||"#64748b",fontWeight:700}}>{ld.estado}</span>}
-            <button onClick={()=>fetchLicit(p)} disabled={isFetching} style={{...btn(isFetching?"#94a3b8":"#0f172a"),fontSize:F(12),padding:"7px 12px",opacity:isFetching?0.6:1}}>
-              {isFetching?"⏳":"🔄"}{mob?"":" Actualizar"}
-            </button>
-          </div>
-        </div>
-        {ld&&ld.estado!=="Desconocido"&&(
-          <div>
-            {ld.descripcion&&<p style={{fontSize:F(12),color:"#334155",lineHeight:1.5,margin:"0 0 10px",padding:"8px 10px",background:"#f8fafc",borderRadius:6}}>{ld.descripcion}</p>}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-              {[["Publicación",fDate(ld.fechaPublicacion),"📅"],["Cierre",fDate(ld.fechaCierre),"⏰"],["Adjudicación",fDate(ld.fechaAdjudicacion),"🏆"]].map(([l,v,ic])=>(
-                <div key={l} style={{background:"#f1f5f9",borderRadius:7,padding:"8px 10px"}}>
-                  <div style={{fontSize:F(10),color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.8,marginBottom:3}}>{ic} {l}</div>
-                  <div style={{fontSize:F(13),fontWeight:700,color:"#0f172a"}}>{v}</div>
-                </div>
-              ))}
-            </div>
-            {ld.url&&<a href={ld.url} target="_blank" rel="noreferrer" style={{fontSize:F(12),color:"#1d4ed8",marginTop:8,display:"block"}}>Ver en Mercado Público →</a>}
-            {p.licitChecked&&<div style={{fontSize:F(10),color:"#94a3b8",marginTop:6}}>Última consulta: {fDate(p.licitChecked)}</div>}
-          </div>
-        )}
-        {!ld&&!isFetching&&<div style={{fontSize:F(12),color:"#94a3b8",marginTop:8}}>Presiona "Actualizar" para consultar Mercado Público.</div>}
+  const sendChat = async () => {
+    if (!chatInput.trim() || chatLoading) return;
+    const um = { role: "user", content: chatInput.trim() };
+    const nm = [...msgs, um];
+    setMsgs(nm); setChatInput(""); setChatLoading(true);
+    setTimeout(() => chatRef.current?.scrollTo(0, chatRef.current.scrollHeight), 50);
+    const cotizCtx = cotiz.length > 0 ? `\nCotizaciones SNSM: ${cotiz.map(c => `${c.empresa}:${c.estado}`).join(", ")}` : "";
+    const { ok, data } = await apiFetch({ type: "chat", messages: nm, context: buildCtx() + cotizCtx, follows: follows.filter(f => f.status === "activo").map(f => `[${f.urgency}] ${f.subject} → ${f.to}`).join("\n") }, "chat");
+    setMsgs(m => [...m, { role: "assistant", content: ok ? (data.text || "Sin respuesta.") : "Error de conexión." }]);
+    setChatLoading(false);
+    setTimeout(() => chatRef.current?.scrollTo(0, chatRef.current.scrollHeight), 100);
+  };
+
+  // ── Estilos base ─────────────────────────────────────
+  const btn = (bg, c = "#fff") => ({ padding: "10px 16px", borderRadius: 8, background: bg, color: c, border: "none", cursor: "pointer", fontSize: F(13), fontWeight: 700 });
+  const inp = { padding: "11px 13px", borderRadius: 7, border: "1px solid #d1d5db", fontSize: F(13), width: "100%", boxSizing: "border-box", outline: "none", background: "white" };
+  const lbl = { fontSize: F(12), fontWeight: 700, color: "#374151", display: "block", marginBottom: 5 };
+  const scroll = { overflowY: "auto", WebkitOverflowScrolling: "touch" };
+  const pendingFollows = follows.filter(f => f.status === "activo");
+  const critFollows = pendingFollows.filter(f => f.urgency === "crítica");
+
+  // ══════════════════════════════════════════════════
+  // SIDEBAR (desktop)
+  // ══════════════════════════════════════════════════
+  const sidebar = !mob && (
+    <div style={{ width: 260, background: "#0f172a", display: "flex", flexDirection: "column", flexShrink: 0, overflowY: "auto" }}>
+      <div style={{ padding: "12px 8px" }}>
+        <button onClick={() => { setView("dash"); setSel(null); }} style={{ width: "100%", padding: "10px 14px", borderRadius: 7, background: view === "dash" && !sel ? "#1e3a5f" : "transparent", color: view === "dash" && !sel ? "#93c5fd" : "#64748b", border: "none", cursor: "pointer", textAlign: "left", fontSize: F(12), fontWeight: 600 }}>📊 Dashboard</button>
+        <button onClick={() => setView("chat")} style={{ width: "100%", padding: "10px 14px", borderRadius: 7, background: view === "chat" ? "#1e3a5f" : "transparent", color: view === "chat" ? "#93c5fd" : "#64748b", border: "none", cursor: "pointer", textAlign: "left", fontSize: F(12), fontWeight: 600 }}>🤖 Asistente IA</button>
       </div>
-    );
-  };
-
-  // ── CALENDARIO MINI (para card de proyecto) ───────
-  const CalMini = ({projId}) => {
-    const evs = eventsForProject(projId);
-    if(!evs.length) return null;
-    const upcoming = evs.filter(e => e.start >= new Date().toISOString().slice(0,10)).slice(0,3);
-    if(!upcoming.length) return null;
-    return(
-      <div style={{marginTop:10,padding:"10px 12px",background:"#eff6ff",borderRadius:8,border:"1px solid #bfdbfe"}}>
-        <div style={{fontSize:F(10),fontWeight:700,color:"#1d4ed8",textTransform:"uppercase",letterSpacing:0.8,marginBottom:6}}>📅 Reuniones próximas</div>
-        {upcoming.map(e=>(
-          <div key={e.id||e.title} style={{fontSize:F(12),color:"#1e3a5f",marginBottom:4,display:"flex",gap:8,alignItems:"flex-start"}}>
-            <span style={{color:"#3b82f6",flexShrink:0}}>▸</span>
-            <div>
-              <span style={{fontWeight:600}}>{e.title}</span>
-              <span style={{color:"#64748b",marginLeft:6}}>{fDate(e.start)}{e.time?" "+e.time:""}</span>
+      {pendingFollows.length > 0 && (
+        <div style={{ margin: "0 10px 8px", padding: "9px 12px", background: "#7f1d1d22", borderRadius: 7, border: "1px solid #ef444433" }}>
+          <div style={{ fontSize: F(10), color: "#fca5a5", fontWeight: 700, textTransform: "uppercase", marginBottom: 3 }}>📬 Seguimientos</div>
+          {critFollows.length > 0 && <div style={{ fontSize: F(11), color: "#ef4444", fontWeight: 700 }}>🔴 {critFollows.length} crítico(s)</div>}
+          <div style={{ fontSize: F(10), color: "#94a3b8" }}>{pendingFollows.length} activos</div>
+        </div>
+      )}
+      <div style={{ padding: "0 8px", flex: 1 }}>
+        <div style={{ fontSize: F(10), color: "#334155", fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", padding: "8px 12px 5px" }}>Proyectos</div>
+        {projects.map(p => (
+          <button key={p.id} onClick={() => { setSel(p.id); setProjTab("overview"); setView("project"); }} style={{ width: "100%", padding: "10px 12px", borderRadius: 7, background: sel === p.id ? "#1e3a5f" : "transparent", border: sel === p.id ? "1px solid #1d4ed8" : "1px solid transparent", cursor: "pointer", textAlign: "left", marginBottom: 3 }}>
+            <div style={{ fontSize: F(11), fontWeight: sel === p.id ? 700 : 500, color: sel === p.id ? "#e2e8f0" : "#94a3b8", lineHeight: 1.3, marginBottom: 4 }}>{p.name}</div>
+            <div style={{ display: "flex", gap: 5 }}>
+              <span style={{ fontSize: F(9), padding: "2px 7px", borderRadius: 8, background: SC[p.status] + "25", color: SC[p.status], fontWeight: 700 }}>{p.status}</span>
+              <span style={{ fontSize: F(9), padding: "2px 6px", borderRadius: 8, background: "#1e293b", color: "#64748b" }}>{p.financier}</span>
             </div>
-          </div>
+          </button>
         ))}
       </div>
-    );
-  };
-
-  // ── PANEL SOLICITUDES RESPONDIDAS ─────────────────
-  const AnsweredPanel = () => {
-    const byProj = {};
-    answeredRequests.forEach(a => {
-      if(!byProj[a.projectId]) byProj[a.projectId] = [];
-      byProj[a.projectId].push(a);
-    });
-
-    return(
-      <div style={{padding:mob?"16px 16px 90px":"24px",...scroll}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
-          <div>
-            <div style={{fontSize:F(16),fontWeight:800,color:"#0f172a",marginBottom:3}}>✅ Solicitudes Respondidas</div>
-            <div style={{fontSize:F(12),color:"#64748b"}}>Evidencia de correos enviados al completar solicitudes de jefatura</div>
-          </div>
-          <div style={{fontSize:F(11),color:"#94a3b8"}}>{answeredRequests.length} registro(s)</div>
-        </div>
-
-        {answeredRequests.length === 0 && (
-          <div style={{background:"white",borderRadius:12,padding:40,textAlign:"center",border:"2px dashed #e2e8f0"}}>
-            <div style={{fontSize:F(36),marginBottom:12}}>📭</div>
-            <div style={{fontSize:F(14),color:"#64748b",fontWeight:600,marginBottom:6}}>Sin registros aún</div>
-            <div style={{fontSize:F(12),color:"#94a3b8"}}>Cuando marques una solicitud como completada,<br/>el sistema verificará en Gmail si enviaste el correo correspondiente.</div>
-          </div>
-        )}
-
-        {Object.entries(byProj).map(([projId, items]) => {
-          const p = projects.find(x=>x.id===projId);
-          return(
-            <div key={projId} style={{marginBottom:24}}>
-              <div style={{fontSize:F(12),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:10,paddingBottom:6,borderBottom:"1px solid #f1f5f9"}}>
-                {p?.name || projId}
-              </div>
-              {items.map(a => (
-                <div key={a.id} style={{background:"white",borderRadius:10,padding:16,border:`1px solid ${a.found?"#bbf7d0":"#fed7aa"}`,marginBottom:10,borderLeft:`4px solid ${a.found?"#22c55e":"#f97316"}`}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:10}}>
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:F(13),fontWeight:700,color:"#0f172a",marginBottom:4,lineHeight:1.4}}>{a.taskText}</div>
-                      <div style={{fontSize:F(11),color:"#64748b"}}>Verificado el {fDateTime(a.verifiedAt)}</div>
-                    </div>
-                    <span style={{fontSize:F(11),padding:"3px 10px",borderRadius:8,fontWeight:700,background:a.found?"#f0fdf4":"#fff7ed",color:a.found?"#15803d":"#c2410c",flexShrink:0}}>
-                      {a.found?"✅ Correo encontrado":"⚠️ Sin evidencia"}
-                    </span>
-                  </div>
-
-                  {a.found ? (
-                    <div style={{background:"#f8fafc",borderRadius:8,padding:"12px 14px",border:"1px solid #e2e8f0"}}>
-                      <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:8,marginBottom:10}}>
-                        <div>
-                          <div style={{fontSize:F(10),color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.7,marginBottom:3}}>Asunto enviado</div>
-                          <div style={{fontSize:F(12),fontWeight:600,color:"#0f172a"}}>{a.subject||"—"}</div>
-                        </div>
-                        <div>
-                          <div style={{fontSize:F(10),color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.7,marginBottom:3}}>Fecha y hora de envío</div>
-                          <div style={{fontSize:F(12),fontWeight:600,color:"#059669"}}>{a.sentDate||"—"} {a.sentTime ? "· "+a.sentTime : ""}</div>
-                        </div>
-                      </div>
-                      {a.snippet && (
-                        <div style={{fontSize:F(12),color:"#334155",lineHeight:1.5,padding:"8px 10px",background:"#eff6ff",borderRadius:6,marginBottom:10,borderLeft:"3px solid #3b82f6"}}>
-                          "{a.snippet}"
-                        </div>
-                      )}
-                      {a.howAnswered && (
-                        <div style={{fontSize:F(12),color:"#475569",marginBottom:8}}>
-                          <span style={{fontWeight:700,color:"#334155"}}>Cómo respondí: </span>{a.howAnswered}
-                        </div>
-                      )}
-                      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-                        {a.emailUrl && (
-                          <a href={a.emailUrl} target="_blank" rel="noreferrer"
-                            style={{fontSize:F(12),color:"#1d4ed8",padding:"7px 14px",borderRadius:6,background:"#eff6ff",textDecoration:"none",fontWeight:700}}>
-                            ✉️ Abrir correo →
-                          </a>
-                        )}
-                        {a.pendingReply && (
-                          <div style={{fontSize:F(11),padding:"5px 12px",borderRadius:6,background:"#fef9c3",color:"#854d0e",fontWeight:600,border:"1px solid #fde047"}}>
-                            ⚠️ Pendiente respuesta adicional{a.pendingReplyNote ? ": "+a.pendingReplyNote : ""}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ):(
-                    <div style={{padding:"10px 14px",background:"#fff7ed",borderRadius:8,border:"1px solid #fed7aa",fontSize:F(12),color:"#92400e"}}>
-                      No se encontró correo enviado relacionado con esta tarea. Puede que se haya gestionado por otro medio o que el correo no esté en Gmail.
-                    </div>
-                  )}
-
-                  <button
-                    onClick={()=>saveAnswered(answeredRequests.filter(x=>x.id!==a.id))}
-                    style={{marginTop:10,fontSize:F(11),color:"#94a3b8",background:"none",border:"none",cursor:"pointer",padding:0}}>
-                    ✕ Eliminar registro
-                  </button>
-                </div>
-              ))}
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  // ── PANEL CALENDARIO ──────────────────────────────
-  const CalendarPanel = () => {
-    const now = new Date().toISOString().slice(0,10);
-    const upcoming = [...calendarEvents]
-      .filter(e => e.start >= now)
-      .sort((a,b)=>a.start.localeCompare(b.start));
-    const past = [...calendarEvents]
-      .filter(e => e.start < now)
-      .sort((a,b)=>b.start.localeCompare(a.start))
-      .slice(0,5);
-
-    return(
-      <div style={{padding:mob?"16px 16px 90px":"24px",...scroll}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
-          <div>
-            <div style={{fontSize:F(16),fontWeight:800,color:"#0f172a",marginBottom:3}}>📅 Calendario de Proyectos</div>
-            <div style={{fontSize:F(12),color:"#64748b"}}>{upcoming.length} reunión(es) próxima(s) · {calendarEvents.length} total</div>
-          </div>
-          <button
-            onClick={syncCalendar}
-            disabled={syncingCal}
-            style={{...btn(syncingCal?"#94a3b8":"#0284c7"),fontSize:F(12),padding:"9px 16px",opacity:syncingCal?0.7:1}}>
-            {syncingCal?"⏳ Sincronizando…":"🔄 Sincronizar Google Calendar"}
-          </button>
-        </div>
-
-        {calendarEvents.length === 0 && !syncingCal && (
-          <div style={{background:"white",borderRadius:12,padding:40,textAlign:"center",border:"2px dashed #e2e8f0"}}>
-            <div style={{fontSize:F(36),marginBottom:12}}>📆</div>
-            <div style={{fontSize:F(14),color:"#64748b",fontWeight:600,marginBottom:6}}>Sin eventos sincronizados</div>
-            <div style={{fontSize:F(12),color:"#94a3b8"}}>Presiona "Sincronizar Google Calendar" para cargar tus reuniones<br/>y asociarlas automáticamente a cada proyecto.</div>
-            <button onClick={syncCalendar} style={{...btn("#0284c7"),marginTop:16,fontSize:F(13),padding:"11px 22px"}}>🔄 Sincronizar ahora</button>
-          </div>
-        )}
-
-        {upcoming.length > 0 && (
-          <>
-            <div style={{fontSize:F(12),fontWeight:700,color:"#0284c7",textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Próximas reuniones</div>
-            {upcoming.map(e => {
-              const p = e.projectId ? projects.find(x=>x.id===e.projectId) : null;
-              const d = new Date(e.start+"T12:00:00");
-              const isToday = e.start === now;
-              const isTomorrow = e.start === new Date(Date.now()+86400000).toISOString().slice(0,10);
-              return(
-                <div key={e.id||e.title+e.start} style={{background:"white",borderRadius:10,padding:16,border:`1px solid ${isToday?"#3b82f6":"#e2e8f0"}`,marginBottom:10,borderLeft:`4px solid ${isToday?"#3b82f6":p?SC[p.status]:"#94a3b8"}`}}>
-                  <div style={{display:"flex",gap:14,alignItems:"flex-start"}}>
-                    <div style={{textAlign:"center",minWidth:44,flexShrink:0}}>
-                      <div style={{fontSize:F(22),fontWeight:800,color:isToday?"#1d4ed8":"#0f172a",lineHeight:1}}>{d.getDate()}</div>
-                      <div style={{fontSize:F(10),color:"#64748b",textTransform:"uppercase"}}>{MONTHS_ES[d.getMonth()+1].slice(0,3)}</div>
-                      {isToday&&<div style={{fontSize:F(9),color:"#1d4ed8",fontWeight:700,marginTop:2}}>HOY</div>}
-                      {isTomorrow&&<div style={{fontSize:F(9),color:"#f97316",fontWeight:700,marginTop:2}}>MAÑANA</div>}
-                    </div>
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:F(14),fontWeight:700,color:"#0f172a",marginBottom:4,lineHeight:1.3}}>{e.title}</div>
-                      {e.time&&<div style={{fontSize:F(12),color:"#64748b",marginBottom:6}}>🕐 {e.time}</div>}
-                      {e.description&&<div style={{fontSize:F(12),color:"#475569",lineHeight:1.5,marginBottom:8,padding:"6px 10px",background:"#f8fafc",borderRadius:6}}>{e.description}</div>}
-                      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                        {p ? (
-                          <span style={{fontSize:F(11),padding:"3px 10px",borderRadius:8,background:SC[p.status]+"18",color:SC[p.status],fontWeight:700}}>{p.name.split(" ").slice(0,4).join(" ")}…</span>
-                        ):(
-                          <span style={{fontSize:F(11),padding:"3px 8px",borderRadius:8,background:"#f1f5f9",color:"#64748b"}}>Sin proyecto asociado</span>
-                        )}
-                        {e.url&&<a href={e.url} target="_blank" rel="noreferrer" style={{fontSize:F(11),color:"#1d4ed8",textDecoration:"none",fontWeight:600}}>📎 Ver evento →</a>}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </>
-        )}
-
-        {past.length > 0 && (
-          <details style={{marginTop:16}}>
-            <summary style={{fontSize:F(12),color:"#94a3b8",cursor:"pointer",padding:"8px 0",fontWeight:600}}>
-              Reuniones pasadas ({past.length} recientes)
-            </summary>
-            <div style={{marginTop:8}}>
-              {past.map(e=>{
-                const p = e.projectId ? projects.find(x=>x.id===e.projectId) : null;
-                return(
-                  <div key={e.id||e.title+e.start} style={{background:"#f8fafc",borderRadius:8,padding:"12px 14px",border:"1px solid #e2e8f0",marginBottom:8,opacity:0.7}}>
-                    <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
-                      <div>
-                        <div style={{fontSize:F(12),fontWeight:600,color:"#334155"}}>{e.title}</div>
-                        <div style={{fontSize:F(11),color:"#94a3b8",marginTop:2}}>{fDate(e.start)}{e.time?" · "+e.time:""}</div>
-                      </div>
-                      {p&&<span style={{fontSize:F(10),padding:"2px 8px",borderRadius:6,background:"#f1f5f9",color:"#64748b",flexShrink:0}}>{p.name.split(" ").slice(0,3).join(" ")}…</span>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </details>
-        )}
-
-        {/* ── Agregar evento manual ── */}
-        <details style={{marginTop:20}}>
-          <summary style={{fontSize:F(12),color:"#1d4ed8",cursor:"pointer",padding:"8px 0",fontWeight:700}}>+ Agregar evento manualmente</summary>
-          <AddEventForm onAdd={(ev)=>saveCal([...calendarEvents,{...ev,id:uid()}])} projects={projects} F={F} btn={btn} lbl={lbl} inp={inp} mob={mob}/>
-        </details>
-      </div>
-    );
-  };
-
-
-
-  // ── HEADER ────────────────────────────────────────
-  const header=(
-    <div style={{background:"#0f172a",color:"white",padding:mob?"14px 16px":"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexShrink:0}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}}>
-        {mob&&view==="project"&&<button onClick={()=>{setView("dash");setSel(null);}} style={{background:"none",border:"none",color:"white",fontSize:F(20),cursor:"pointer",padding:0,flexShrink:0}}>←</button>}
-        <div style={{flex:1,minWidth:0}}>
-          {view==="project"&&proj?(
-            renamingId===proj.id?(
-              <input autoFocus value={renameVal} onChange={e=>setRenameVal(e.target.value)} onBlur={commitRename} onKeyDown={e=>{if(e.key==="Enter")commitRename();if(e.key==="Escape")setRenamingId(null);}} style={{fontSize:F(15),fontWeight:800,background:"transparent",border:"none",borderBottom:"2px solid #3b82f6",color:"white",outline:"none",width:"100%",padding:"2px 0"}}/>
-            ):(
-              <div style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer"}} onClick={()=>{setRenamingId(proj.id);setRenameVal(proj.name);}}>
-                <div style={{fontSize:F(15),fontWeight:800,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{proj.name}</div>
-                <span style={{fontSize:F(12),color:"#475569"}}>✏️</span>
-              </div>
-            )
-          ):(
-            <div>
-              <div style={{fontSize:F(15),fontWeight:800,letterSpacing:-0.3}}>SECPLA Command</div>
-              {criticalGf.length>0&&<div style={{fontSize:F(11),color:"#fca5a5",marginTop:1}}>🔴 {criticalGf.length} alerta crítica{criticalGf.length>1?"s":""}</div>}
-            </div>
-          )}
-          {view==="project"&&proj&&<div style={{fontSize:F(11),color:"#64748b",marginTop:1}}>{proj.financier} · {proj.stage} · {fCLP(proj.budget)}</div>}
-          {view!=="project"&&!criticalGf.length&&<div style={{fontSize:F(11),color:"#475569",marginTop:1}}>Municipalidad de Recoleta · Infraestructura de Seguridad</div>}
-        </div>
-      </div>
-      <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
-        {/* Botón sync Drive en header */}
-        {!mob&&(
-          <button onClick={syncDrive} disabled={syncingDrive} title="Sincronizar con Google Drive"
-            style={{...btn(syncingDrive?"#334155":"#1e293b","#93c5fd"),fontSize:F(12),padding:"7px 12px",opacity:syncingDrive?0.6:1}}>
-            {syncingDrive?"⏳":"📂"}{mob?"":" Drive"}
-          </button>
-        )}
-        {view==="project"&&proj&&(
-          <><input ref={fileRef} type="file" accept=".pdf,image/*" onChange={uploadDoc} style={{display:"none"}}/>
-          <button onClick={()=>fileRef.current?.click()} disabled={extracting} style={{...btn(extracting?"#334155":"#1e3a5f","#93c5fd"),fontSize:F(12),padding:"7px 12px"}}>
-            {extracting?"⏳":"📎"}{mob?"":" Doc"}
-          </button></>
-        )}
-        {!mob&&<button onClick={()=>setView(v=>v==="chat"?"dash":"chat")} style={{...btn(view==="chat"?"#1d4ed8":"#1e293b"),fontSize:F(12),padding:"8px 14px"}}>🤖 {view==="chat"?"Cerrar":"Asistente"}</button>}
+      <div style={{ padding: "10px 8px" }}>
+        <button onClick={() => { setForm({ name: "", budget: "", stage: "Formulación", status: "Pendiente", deadline: "", financier: "GORE", program: "", desc: "", notes: "", licitId: "" }); setEditId(null); setShowForm(true); }} style={{ ...btn("#1d4ed8"), width: "100%", fontSize: F(12) }}>+ Nuevo Proyecto</button>
       </div>
     </div>
   );
 
+  // ══════════════════════════════════════════════════
+  // HEADER
+  // ══════════════════════════════════════════════════
+  const header = (
+    <div style={{ background: "#0f172a", color: "white", padding: mob ? "13px 16px" : "13px 22px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+        {mob && (view === "project" || view === "chat") && (
+          <button onClick={() => { setView("dash"); setSel(null); }} style={{ background: "none", border: "none", color: "white", fontSize: F(20), cursor: "pointer" }}>←</button>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {view === "project" && proj ? (
+            renamingId === proj.id ? (
+              <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenamingId(null); }} style={{ fontSize: F(14), fontWeight: 800, background: "transparent", border: "none", borderBottom: "2px solid #3b82f6", color: "white", outline: "none", width: "100%" }} />
+            ) : (
+              <div onClick={() => { setRenamingId(proj.id); setRenameVal(proj.name); }} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ fontSize: F(14), fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{proj.name}</div>
+                <span style={{ fontSize: F(11), color: "#475569" }}>✏️</span>
+              </div>
+            )
+          ) : (
+            <div>
+              <div style={{ fontSize: F(15), fontWeight: 800 }}>SECPLA Command</div>
+              {critFollows.length > 0 && <div style={{ fontSize: F(10), color: "#fca5a5", marginTop: 1 }}>🔴 {critFollows.length} alerta(s) crítica(s)</div>}
+            </div>
+          )}
+          {view === "project" && proj && <div style={{ fontSize: F(10), color: "#64748b", marginTop: 1 }}>{proj.financier} · {proj.stage} · {fCLP(proj.budget)}</div>}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        {view === "project" && proj && (
+          <>
+            <input ref={fileRef} type="file" accept=".pdf,image/*" onChange={uploadDoc} style={{ display: "none" }} />
+            <button onClick={() => fileRef.current?.click()} disabled={extracting} style={{ ...btn(extracting ? "#334155" : "#1e3a5f", "#93c5fd"), fontSize: F(12), padding: "7px 12px" }}>
+              {extracting ? "⏳" : "📎"}{mob ? "" : " Doc"}
+            </button>
+          </>
+        )}
+        {mob && (
+          <button onClick={() => setView(v => v === "chat" ? "dash" : "chat")} style={{ ...btn(view === "chat" ? "#1d4ed8" : "#1e293b"), fontSize: F(12), padding: "7px 12px" }}>
+            🤖
+          </button>
+        )}
+      </div>
+    </div>
+  );
 
-  // GmailPanel → ver GmailFollowPanel (componente externo)
+  // ══════════════════════════════════════════════════
+  // DASHBOARD
+  // ══════════════════════════════════════════════════
+  const totalBudget = projects.reduce((a, p) => a + (p.budget || 0), 0);
 
-  
-  // ── DASHBOARD ─────────────────────────────────────
-  const dashContent=(
-    <div style={{padding:mob?"16px 16px 90px":"24px",...scroll}}>
-
+  const dashView = (
+    <div style={{ flex: 1, ...scroll, padding: mob ? "16px 16px 90px" : "22px" }}>
       {/* KPIs */}
-      <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(4,1fr)",gap:12,marginBottom:20}}>
+      <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "repeat(4,1fr)", gap: 10, marginBottom: 18 }}>
         {[
-          {l:"Inversión Total",v:fCLP(totalBudget),sub:"CLP",i:"💰",c:"#1d4ed8",bg:"#eff6ff"},
-          {l:"En Ejecución",v:projects.filter(p=>p.status==="En curso"||p.status==="Con alerta").length,sub:`de ${projects.length}`,i:"🟢",c:"#059669",bg:"#f0fdf4"},
-          {l:"Seguimientos",v:pendingGf.length,sub:`${criticalGf.length} crítico(s)`,i:"📬",c:"#dc2626",bg:"#fef2f2"},
-          {l:"Tareas Pendientes",v:projects.flatMap(p=>p.tasks.filter(t=>t.status==="pending")).length,sub:"cartera total",i:"📋",c:"#d97706",bg:"#fffbeb"}
-        ].map(({l,v,sub,i,c,bg})=>(
-          <div key={l} style={{background:bg,borderRadius:10,padding:16,border:`1px solid ${c}22`}}>
-            <div style={{fontSize:F(10),color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,marginBottom:6}}>{l}</div>
-            <div style={{fontSize:mob?F(18):F(22),fontWeight:800,color:c,lineHeight:1}}>{i} {v}</div>
-            <div style={{fontSize:F(11),color:"#94a3b8",marginTop:4}}>{sub}</div>
+          { l: "Inversión Total", v: fCLP(totalBudget), sub: "CLP", i: "💰", c: "#1d4ed8", bg: "#eff6ff" },
+          { l: "En Ejecución", v: projects.filter(p => p.status === "En curso" || p.status === "Con alerta").length, sub: `de ${projects.length}`, i: "🟢", c: "#059669", bg: "#f0fdf4" },
+          { l: "Seguimientos", v: pendingFollows.length, sub: `${critFollows.length} críticos`, i: "📬", c: "#dc2626", bg: "#fef2f2" },
+          { l: "Cotizaciones", v: `${(cotiz.length > 0 ? cotiz : []).filter(c => c.estado === "cotizacion_recibida").length}/${6}`, sub: "SNSM 2025", i: "📋", c: "#7c3aed", bg: "#f5f3ff" },
+        ].map(({ l, v, sub, i, c, bg }) => (
+          <div key={l} style={{ background: bg, borderRadius: 10, padding: 14, border: `1px solid ${c}22` }}>
+            <div style={{ fontSize: F(9), color: "#64748b", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 5 }}>{l}</div>
+            <div style={{ fontSize: mob ? F(17) : F(21), fontWeight: 800, color: c }}>{i} {v}</div>
+            <div style={{ fontSize: F(10), color: "#94a3b8", marginTop: 3 }}>{sub}</div>
           </div>
         ))}
       </div>
 
-      {/* Drive sync banner */}
-      {/* Drive sync detail — mostrado solo cuando hay datos */}
-      {Object.keys(driveSync).length > 0 && (
-        <div style={{background:"#f0fdf4",borderRadius:8,padding:"10px 14px",border:"1px solid #bbf7d0",marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
-            <div style={{fontSize:F(12),color:"#15803d",fontWeight:600}}>
-              📂 {Object.keys(driveSync).length} proyecto(s) sincronizados desde Drive
-            </div>
-          </div>
-          {Object.entries(driveSync).map(([pid,ds])=>{
-            const p=projects.find(x=>x.id===pid);
-            if(!p||!ds.docsFound?.length) return null;
-            return(
-              <div key={pid} style={{marginTop:6,fontSize:F(11),color:"#064e3b"}}>
-                <strong>{p.name.split(" ").slice(0,4).join(" ")}…</strong>: {ds.docsFound.slice(0,3).join(", ")}{ds.docsFound.length>3?` +${ds.docsFound.length-3} más`:""}
-                {ds.lastDocDate&&<span style={{color:"#6ee7b7",marginLeft:6}}>· {ds.lastDocDate}</span>}
+      {/* Barra de sync */}
+      <div style={{ background: "#f8fafc", borderRadius: 10, padding: "10px 14px", border: "1px solid #e2e8f0", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontSize: F(11), fontWeight: 700, color: "#334155" }}>Sincronización</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[
+            { id: "gmail", label: "Bandeja", emoji: "📥", fn: () => syncGmail(false), loading: loadingGmail, count: bandeja.length },
+            { id: "cotiz", label: "Cotizaciones", emoji: "📋", fn: () => syncCotiz(false), loading: loadingCotiz, count: cotiz.filter(c => c.estado === "cotizacion_recibida").length || null },
+            { id: "reloj", label: "Reloj", emoji: "🕐", fn: () => syncReloj(false), loading: loadingReloj },
+          ].map(({ id, label, emoji, fn, loading, count }) => {
+            const st = syncSt[id] || "idle";
+            const stColor = { idle: "#1e293b", loading: "#94a3b8", ok: "#059669", warn: "#d97706", error: "#dc2626" }[st];
+            const stIcon = { ok: "✓", warn: "⚠", error: "✕" }[st] || "";
+            return (
+              <div key={id} style={{ position: "relative" }}>
+                <button onClick={fn} disabled={loading} style={{ ...btn(loading ? "#94a3b8" : stColor), fontSize: F(11), padding: "7px 11px", display: "flex", alignItems: "center", gap: 4, opacity: loading ? 0.7 : 1 }}>
+                  <span>{loading ? "⏳" : emoji}</span>
+                  <span>{label}</span>
+                  {count != null && count > 0 && <span style={{ background: "rgba(255,255,255,0.3)", borderRadius: 9, padding: "1px 5px", fontSize: F(9) }}>{count}</span>}
+                  {!loading && stIcon && <span style={{ fontSize: F(10) }}>{stIcon}</span>}
+                </button>
+                {st !== "idle" && syncMsg[id] && (
+                  <div style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", background: st === "error" ? "#991b1b" : st === "warn" ? "#78350f" : "#0f172a", color: "white", fontSize: F(9), padding: "4px 8px", borderRadius: 5, whiteSpace: "nowrap", zIndex: 50, marginTop: 3, maxWidth: 240 }}>
+                    {syncMsg[id]}
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
-      )}
-      {/* ── Barra de sincronización con feedback visual por botón ── */}
-      {(()=>{
-        const SC = {
-          idle:    {bg:"#1e293b",    color:"white",    icon:""},
-          loading: {bg:"#94a3b8",    color:"white",    icon:"⏳"},
-          ok:      {bg:"#059669",    color:"white",    icon:"✓"},
-          warn:    {bg:"#d97706",    color:"white",    icon:"⚠️"},
-          error:   {bg:"#dc2626",    color:"white",    icon:"✕"},
-        };
-        const SyncBtn = ({id,label,emoji,onClick,disabled,count,countColor})=>{
-          const s=syncStatus[id]||{state:"idle",ts:null,msg:""};
-          const c=SC[s.state]||SC.idle;
-          const isLoading=s.state==="loading"||disabled;
-          return(
-            <div style={{position:"relative",display:"inline-flex",flexDirection:"column",alignItems:"center",gap:2}}>
-              <button onClick={onClick} disabled={isLoading}
-                style={{...btn(isLoading?"#94a3b8":c.bg),fontSize:F(11),padding:"8px 12px",opacity:isLoading?0.7:1,display:"flex",alignItems:"center",gap:5,minWidth:72,justifyContent:"center"}}>
-                <span style={{fontSize:F(14)}}>{isLoading?"⏳":emoji}</span>
-                <span>{label}</span>
-                {count!=null&&count>0&&<span style={{fontSize:F(9),background:countColor||"rgba(255,255,255,0.25)",color:"white",borderRadius:10,padding:"1px 5px"}}>{count}</span>}
-                {!isLoading&&s.state!=="idle"&&<span style={{fontSize:F(10)}}>{c.icon}</span>}
-              </button>
-              {s.state!=="idle"&&s.msg&&(
-                <div style={{
-                  position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",
-                  background:s.state==="error"?"#991b1b":s.state==="warn"?"#78350f":"#0f172a",
-                  color:"white",fontSize:F(10),padding:"5px 9px",borderRadius:6,
-                  whiteSpace:"nowrap",zIndex:50,marginTop:4,maxWidth:260,
-                  boxShadow:"0 2px 8px rgba(0,0,0,0.25)",lineHeight:1.4
-                }}>
-                  {s.msg}
-                  {s.ts&&<div style={{opacity:0.6,marginTop:1}}>{new Date(s.ts).toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}</div>}
-                  {s.code&&<div style={{opacity:0.5,fontSize:F(9),marginTop:1}}>cod: {s.code}</div>}
-                </div>
-              )}
-            </div>
-          );
-        };
-        return(
-          <div style={{background:"#f8fafc",borderRadius:10,padding:"12px 16px",border:"1px solid #e2e8f0",marginBottom:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}>
-              <div style={{fontSize:F(12),fontWeight:700,color:"#334155",paddingTop:8}}>Sincronización de datos</div>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                <SyncBtn id="drive"    label="Drive"     emoji="📂" onClick={syncDrive}              disabled={syncingDrive}    count={Object.keys(driveSync).length||null} countColor="#15803d55"/>
-                <SyncBtn id="cal"      label="Calendario" emoji="📅" onClick={syncCalendar}           disabled={syncingCal}      count={calendarEvents.length||null}/>
-                <SyncBtn id="gmail"    label="Gmail"     emoji="📬" onClick={scanGmail}              disabled={scanningGmail}   count={pendingGf.filter(f=>f.autoDetected).length||null} countColor="#dc262655"/>
-                <SyncBtn id="convenio" label="Convenios" emoji="📋" onClick={trackConvenios}         disabled={trackingConvenio} count={convenioData.filter(c=>c.modificacionesPendientes?.length>0).length||null} countColor="#f59e0b55"/>
-                <SyncBtn id="reloj"    label="Reloj"     emoji="🕐" onClick={()=>syncClockFromGmail(false)} disabled={checkingClock} count={null}/>
-                <SyncBtn id="acuses"   label="Acuses"    emoji="👁" onClick={()=>syncReadReceipts(false)}  disabled={syncingReceipts} count={readReceipts.length||null}/>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      </div>
 
-      {/* Próximas reuniones resumen */}
-      {calendarEvents.filter(e=>e.start>=new Date().toISOString().slice(0,10)).length > 0 && (
-        <div style={{background:"#eff6ff",borderRadius:8,padding:"10px 14px",border:"1px solid #bfdbfe",marginBottom:14}}>
-          <div style={{fontSize:F(11),fontWeight:700,color:"#1d4ed8",marginBottom:6,display:"flex",justifyContent:"space-between"}}>
-            <span>📅 Próximas reuniones</span>
-            <span style={{cursor:"pointer",fontWeight:400}} onClick={()=>setMainTab("calendar")}>Ver todas →</span>
-          </div>
-          {calendarEvents.filter(e=>e.start>=new Date().toISOString().slice(0,10)).slice(0,3).map(e=>{
-            const p=e.projectId?projects.find(x=>x.id===e.projectId):null;
-            return(
-              <div key={e.id||e.title} style={{fontSize:F(12),color:"#1e3a5f",marginBottom:3,display:"flex",gap:8}}>
-                <span>▸ <strong>{fDate(e.start)}{e.time?" "+e.time:""}</strong> — {e.title}</span>
-                {p&&<span style={{fontSize:F(10),color:"#64748b"}}>({p.name.split(" ").slice(0,3).join(" ")}…)</span>}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {/* Bandeja de correos */}
+      <BandejaPanel bandeja={bandeja} follows={follows} onFollow={bandejaFollow} onDiscard={bandejaDiscard} onRefresh={() => syncGmail(false)} syncing={loadingGmail} syncMsg={syncMsg.gmail} F={F} btn={btn} />
 
-      <GmailFollowPanel
-        gf={gf} projects={projects} readReceipts={readReceipts}
-        resolveFollow={resolveFollow} syncStatus={syncStatus}
-        syncingReceipts={syncingReceipts} syncReadReceipts={syncReadReceipts}
-        schedLog={schedLog} F={F} btn={btn} UC={UC} UL={UL}
-        fDate={fDate} fDateTime={fDateTime}
-      />
+      {/* Seguimientos activos */}
+      <FollowsPanel follows={follows} projects={projects} onResolve={resolveFollow} onAdd={addFollow} F={F} btn={btn} UC={UC} UL={UL} fDate={fDate} />
 
-      {/* ── SIEVAP COUNTDOWN ── */}
-      {(()=>{
-        const now=new Date();
-        const elapsed=Math.min(SIEVAP_TOTAL,Math.max(0,daysBetween(SIEVAP_START,now)));
-        const remaining=Math.max(0,daysBetween(now,SIEVAP_DEADLINE));
-        const pct=Math.min(100,Math.round((elapsed/SIEVAP_TOTAL)*100));
-        const overdue=now>SIEVAP_DEADLINE;
-        const critical=!overdue&&remaining<=3;
-        const warning=!overdue&&remaining<=7&&remaining>3;
-        const barColor=overdue?"#ef4444":critical?"#f97316":warning?"#f59e0b":"#3b82f6";
-        const bgColor=overdue?"#fef2f2":critical?"#fff7ed":warning?"#fffbeb":"#eff6ff";
-        const borderColor=overdue?"#ef4444":critical?"#f97316":warning?"#f59e0b":"#3b82f6";
-        return(
-          <div style={{background:bgColor,borderRadius:12,padding:18,border:`2px solid ${borderColor}`,marginBottom:20}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+      {/* Cotizaciones SNSM 2025 */}
+      <CotizPanel cotiz={cotiz} syncing={loadingCotiz} syncMsg={syncMsg.cotiz !== "idle" ? syncMsg.cotiz : ""} onRefresh={() => syncCotiz(false)} F={F} btn={btn} fDate={fDate} />
+
+      {/* SIEVAP countdown */}
+      {(() => {
+        const now = new Date();
+        const elapsed = Math.min(SIEVAP_TOTAL, Math.max(0, Math.round((now - SIEVAP_START) / 86400000)));
+        const remaining = Math.max(0, Math.round((SIEVAP_DEADLINE - now) / 86400000));
+        const overdue = now > SIEVAP_DEADLINE;
+        const pct = Math.min(100, Math.round((elapsed / SIEVAP_TOTAL) * 100));
+        const bc = overdue ? "#ef4444" : remaining <= 3 ? "#f97316" : remaining <= 7 ? "#f59e0b" : "#3b82f6";
+        return (
+          <div style={{ background: overdue ? "#fef2f2" : remaining <= 3 ? "#fff7ed" : "#eff6ff", borderRadius: 12, padding: 16, border: `2px solid ${bc}`, marginBottom: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
               <div>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                  <span style={{fontSize:F(18)}}>⏳</span>
-                  <span style={{fontSize:F(13),fontWeight:800,color:borderColor,textTransform:"uppercase",letterSpacing:0.5}}>
-                    {overdue?"⚠️ VENCIDO":critical?"🔴 PLAZO CRÍTICO":warning?"🟠 PLAZO PRÓXIMO":"Plazo SIEVAP"}
-                  </span>
-                </div>
-                <div style={{fontSize:F(12),color:"#475569",lineHeight:1.5}}>
-                  Subsanación observaciones <strong>SNSM25-STP-0113</strong><br/>
-                  Integración de Cámaras de Televigilancia · SPD<br/>
-                  <span style={{fontSize:F(10),color:"#94a3b8"}}>⚠️ 3ra instancia de observaciones — resolverlas en su totalidad</span>
-                </div>
+                <div style={{ fontSize: F(12), fontWeight: 800, color: bc, textTransform: "uppercase", marginBottom: 3 }}>⏳ {overdue ? "VENCIDO" : remaining <= 3 ? "CRÍTICO" : "Plazo SIEVAP"}</div>
+                <div style={{ fontSize: F(11), color: "#475569" }}>Subsanación <strong>SNSM25-STP-0113</strong> · 3ra instancia</div>
               </div>
-              <div style={{textAlign:"right",flexShrink:0}}>
-                <div style={{fontSize:F(overdue?16:24),fontWeight:900,color:borderColor,lineHeight:1}}>
-                  {overdue?`${Math.abs(remaining)} d.h. vencido`:`${remaining}`}
-                </div>
-                {!overdue&&<div style={{fontSize:F(11),color:"#64748b",marginTop:2}}>días hábiles restantes</div>}
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: F(overdue ? 14 : 22), fontWeight: 900, color: bc }}>{overdue ? `${Math.abs(remaining)}d vencido` : remaining}</div>
+                {!overdue && <div style={{ fontSize: F(10), color: "#64748b" }}>días corridos</div>}
               </div>
             </div>
-            <div style={{background:"#e2e8f0",borderRadius:20,height:14,overflow:"hidden",marginBottom:10}}>
-              <div style={{height:"100%",width:`${pct}%`,background:barColor,borderRadius:20,transition:"width 0.5s ease"}}/>
+            <div style={{ background: "#e2e8f0", borderRadius: 20, height: 10, overflow: "hidden", marginBottom: 8 }}>
+              <div style={{ height: "100%", width: `${pct}%`, background: bc, transition: "width 0.5s" }} />
             </div>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:F(10),color:"#64748b",marginBottom:14}}>
-              <span>Inicio: {fDate("2026-04-09")} (Día 1)</span>
-              <span style={{fontWeight:700,color:borderColor}}>{elapsed}/{SIEVAP_TOTAL} días corridos</span>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: F(10), color: "#64748b" }}>
+              <span>Inicio: {fDate("2026-04-09")}</span>
+              <span style={{ fontWeight: 700, color: bc }}>{elapsed}/{SIEVAP_TOTAL}d</span>
               <span>Límite: {fDate("2026-04-24")}</span>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-              {[["Inicio solicitud",fDate("2026-04-09"),"📅","#64748b"],["Hoy",fDate(now.toISOString().slice(0,10)),"📍",borderColor],["Fecha límite",fDate("2026-04-24"),overdue?"🚨":"⏰",borderColor]].map(([l,v,ic,c])=>(
-                <div key={l} style={{background:"white",borderRadius:8,padding:"9px 12px",border:`1px solid ${c}33`,textAlign:"center"}}>
-                  <div style={{fontSize:F(14)}}>{ic}</div>
-                  <div style={{fontSize:F(10),color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.5,marginTop:2}}>{l}</div>
-                  <div style={{fontSize:F(12),fontWeight:700,color:c,marginTop:2}}>{v}</div>
-                </div>
-              ))}
-            </div>
-            {(critical||overdue)&&(
-              <div style={{marginTop:12,padding:"10px 14px",background:overdue?"#fee2e2":"#ffedd5",borderRadius:8,fontSize:F(12),color:overdue?"#991b1b":"#9a3412",fontWeight:600}}>
-                {overdue?"⚠️ Plazo VENCIDO. Ingresar las observaciones al SIEVAP de inmediato y coordinar con SPD."
-                  :`🚨 Quedan solo ${remaining} día${remaining!==1?"s":""} corrido${remaining!==1?"s":""} para subir las observaciones al SIEVAP. ¡Esta es la 3ra instancia!`}
-              </div>
-            )}
-            <div style={{marginTop:10,padding:"8px 12px",background:"white",borderRadius:7,border:"1px solid #e2e8f0",fontSize:F(11),color:"#64748b"}}>
-              📄 Fuente: <strong>Certificado de Revisión de Diseño - Observada.pdf</strong> · SIEVAP · 9 abr 2026
-            </div>
-            <a href="https://mail.google.com/a/recoleta.cl/#all/19d743c80d701dbc" target="_blank" rel="noreferrer"
-              style={{display:"inline-block",marginTop:12,fontSize:F(12),color:"#1d4ed8",fontWeight:700,textDecoration:"none"}}>
-              ✉️ Ver correo de solicitud (María Paz) →
-            </a>
+            <a href="https://mail.google.com/a/recoleta.cl/#all/19d743c80d701dbc" target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 8, fontSize: F(11), color: "#1d4ed8", fontWeight: 700 }}>✉️ Ver correo →</a>
           </div>
         );
       })()}
 
-      {/* ── SOLICITUDES JEFATURA ── */}
-      {(()=>{
-        const pending=boss.filter(b=>b.status==="pendiente");
-        const done=boss.filter(b=>b.status==="completado");
-        const BC={"crítica":"#dc2626","alta":"#f97316","media":"#f59e0b"};
-        const BL={"crítica":"🔴","alta":"🟠","media":"🟡"};
-        const fromColor={"María Paz Juica":"#7c3aed","Grace Arcos":"#0284c7"};
-        const fromBg={"María Paz Juica":"#f5f3ff","Grace Arcos":"#eff6ff"};
-        return(
-          <div style={{marginTop:24}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-              <div style={{fontSize:F(13),fontWeight:700,color:"#7c3aed",textTransform:"uppercase",letterSpacing:1}}>
-                👩‍💼 Solicitudes de Jefatura — {pending.length} pendientes
-              </div>
-              <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                {answeredRequests.length>0&&(
-                  <button onClick={()=>setMainTab("answered")} style={{fontSize:F(11),padding:"4px 10px",borderRadius:6,background:"#f0fdf4",color:"#15803d",border:"1px solid #bbf7d0",cursor:"pointer",fontWeight:700}}>
-                    ✅ {answeredRequests.length} respondida(s)
-                  </button>
-                )}
-                {done.length>0&&<span style={{fontSize:F(11),color:"#94a3b8"}}>{done.length} completadas</span>}
-              </div>
-            </div>
-            {pending.map(b=>{
-              const fp=projects.find(p=>p.id===b.projectId);
-              const isVerifying = verifyingTask === b.id;
-              return(
-                <div key={b.id} style={{background:"white",borderRadius:10,padding:16,border:`2px solid ${fromColor[b.from]||"#7c3aed"}33`,marginBottom:12,borderLeft:`5px solid ${fromColor[b.from]||"#7c3aed"}`}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}}>
-                    <div style={{flex:1}}>
-                      <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,flexWrap:"wrap"}}>
-                        <span style={{fontSize:F(12),fontWeight:800,padding:"3px 10px",borderRadius:20,background:fromBg[b.from]||"#f5f3ff",color:fromColor[b.from]||"#7c3aed"}}>👩‍💼 {b.from}</span>
-                        <span style={{fontSize:F(11),padding:"2px 8px",borderRadius:8,background:BC[b.urgency]+"15",color:BC[b.urgency],fontWeight:700}}>{BL[b.urgency]} {b.urgency}</span>
-                        {fp&&<span style={{fontSize:F(10),padding:"2px 8px",borderRadius:6,background:"#f1f5f9",color:"#475569"}}>{fp.name.split(" ").slice(0,4).join(" ")}…</span>}
-                      </div>
-                      <div style={{fontSize:F(14),color:"#0f172a",lineHeight:1.5,fontWeight:500}}>{b.task}</div>
-                    </div>
-                    <div style={{textAlign:"right",flexShrink:0}}>
-                      <div style={{fontSize:F(11),color:"#94a3b8"}}>{fDate(b.requestDate)}</div>
-                    </div>
+      {/* Solicitudes Jefatura */}
+      {(() => {
+        const pending = boss.filter(b => b.status === "pendiente");
+        const done = boss.filter(b => b.status === "completado");
+        const fromC = { "María Paz Juica": "#7c3aed", "Grace Arcos": "#0284c7" };
+        return (
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: F(12), fontWeight: 700, color: "#7c3aed", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>👩‍💼 Solicitudes de Jefatura · {pending.length} pendientes</div>
+            {pending.map(b => {
+              const fp = projects.find(p => p.id === b.projectId);
+              return (
+                <div key={b.id} style={{ background: "white", borderRadius: 10, padding: 14, border: `1.5px solid ${fromC[b.from] || "#7c3aed"}33`, marginBottom: 10, borderLeft: `5px solid ${fromC[b.from] || "#7c3aed"}` }}>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: F(11), fontWeight: 800, padding: "2px 9px", borderRadius: 20, background: (fromC[b.from] || "#7c3aed") + "18", color: fromC[b.from] || "#7c3aed" }}>👩‍💼 {b.from}</span>
+                    <span style={{ fontSize: F(10), padding: "2px 7px", borderRadius: 8, background: UC[b.urgency] + "15", color: UC[b.urgency], fontWeight: 700 }}>{UL[b.urgency]} {b.urgency}</span>
+                    {fp && <span style={{ fontSize: F(10), padding: "2px 7px", borderRadius: 6, background: "#f1f5f9", color: "#475569" }}>{fp.name.slice(0, 30)}…</span>}
+                    <span style={{ fontSize: F(10), color: "#94a3b8", marginLeft: "auto" }}>{fDate(b.requestDate)}</span>
                   </div>
-                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4,alignItems:"center"}}>
-                    <a href={b.threadUrl} target="_blank" rel="noreferrer" style={{fontSize:F(12),color:"#1d4ed8",padding:"6px 14px",borderRadius:6,background:"#eff6ff",textDecoration:"none",fontWeight:700}}>✉️ Ver correo</a>
-                    <button onClick={()=>toggleBoss(b.id)} disabled={isVerifying} style={{...btn("#dcfce7","#166534"),fontSize:F(12),padding:"6px 14px",opacity:isVerifying?0.7:1}}>
-                      {isVerifying?"⏳ Verificando Gmail…":"✅ Marcar completado"}
-                    </button>
+                  <div style={{ fontSize: F(13), color: "#0f172a", lineHeight: 1.5, marginBottom: 8 }}>{b.task}</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <a href={b.threadUrl} target="_blank" rel="noreferrer" style={{ fontSize: F(11), padding: "5px 12px", borderRadius: 6, background: "#eff6ff", color: "#1d4ed8", textDecoration: "none", fontWeight: 700 }}>✉️ Correo</a>
+                    <button onClick={() => toggleBoss(b.id)} style={{ ...btn("#dcfce7", "#166534"), fontSize: F(11), padding: "5px 12px" }}>✅ Completado</button>
                   </div>
                 </div>
               );
             })}
-            {done.length>0&&(
-              <details style={{marginTop:4}}>
-                <summary style={{fontSize:F(11),color:"#94a3b8",cursor:"pointer",padding:"6px 0"}}>Ver {done.length} solicitudes completadas</summary>
-                {done.map(b=>{
-                  // ¿Hay evidencia de correo enviado?
-                  const ev = answeredRequests.find(a=>a.taskId===b.id);
-                  return(
-                  <div key={b.id} style={{background:"#f8fafc",borderRadius:8,padding:14,border:"1px solid #e2e8f0",marginBottom:8,opacity:0.75,borderLeft:`4px solid #22c55e`}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                      <div style={{flex:1}}>
-                        <span style={{fontSize:F(11),fontWeight:700,color:"#059669",marginRight:8}}>✅ Completado</span>
-                        <span style={{fontSize:F(11),color:"#64748b",fontWeight:600}}>{b.from}</span>
-                        <div style={{fontSize:F(12),color:"#64748b",marginTop:4,textDecoration:"line-through"}}>{b.task}</div>
-                        {b.completedNote&&<div style={{fontSize:F(11),color:"#059669",marginTop:3,fontStyle:"italic"}}>{b.completedNote}</div>}
-                        {/* Evidencia de correo enviado */}
-                        {ev && ev.found && (
-                          <div style={{marginTop:8,padding:"8px 10px",background:"#f0fdf4",borderRadius:6,border:"1px solid #bbf7d0"}}>
-                            <div style={{fontSize:F(11),color:"#15803d",fontWeight:700,marginBottom:4}}>📤 Correo verificado</div>
-                            <div style={{fontSize:F(11),color:"#334155"}}>{ev.subject}</div>
-                            <div style={{fontSize:F(10),color:"#64748b",marginTop:2}}>{ev.sentDate}{ev.sentTime?" · "+ev.sentTime:""}</div>
-                            {ev.emailUrl&&<a href={ev.emailUrl} target="_blank" rel="noreferrer" style={{fontSize:F(11),color:"#1d4ed8",fontWeight:700}}>Ver correo →</a>}
-                          </div>
-                        )}
-                        {ev && !ev.found && (
-                          <div style={{marginTop:6,fontSize:F(11),color:"#92400e",padding:"4px 8px",background:"#fff7ed",borderRadius:5,border:"1px solid #fed7aa"}}>
-                            ⚠️ No se encontró correo enviado en Gmail
-                          </div>
-                        )}
-                      </div>
-                      <button onClick={()=>toggleBoss(b.id)} style={{...btn("#fef2f2","#dc2626"),fontSize:F(11),padding:"4px 10px"}}>↩ Reabrir</button>
+            {done.length > 0 && (
+              <details><summary style={{ fontSize: F(11), color: "#94a3b8", cursor: "pointer", padding: "4px 0" }}>Ver {done.length} completadas</summary>
+                {done.map(b => (
+                  <div key={b.id} style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px", marginBottom: 6, opacity: 0.75, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontSize: F(11), color: "#059669", fontWeight: 700 }}>✅ {b.from}</div>
+                      <div style={{ fontSize: F(11), color: "#64748b", textDecoration: "line-through" }}>{b.task}</div>
                     </div>
+                    <button onClick={() => toggleBoss(b.id)} style={{ fontSize: F(10), padding: "3px 8px", borderRadius: 5, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", color: "#64748b" }}>↩</button>
                   </div>
-                );})}
+                ))}
               </details>
             )}
-            <button onClick={()=>saveBoss(BOSS_INIT)} style={{fontSize:F(10),color:"#94a3b8",background:"none",border:"none",cursor:"pointer",marginTop:4,padding:0}}>↺ Restablecer solicitudes</button>
           </div>
         );
       })()}
 
       {/* Cartera */}
-      <div style={{fontSize:F(12),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:10,marginTop:24}}>Cartera Completa</div>
-      {projects.map(p=>{
-        const projEvs = eventsForProject(p.id).filter(e=>e.start>=new Date().toISOString().slice(0,10));
-        return(
-        <div key={p.id} onClick={()=>{setSel(p.id);setTab("overview");setView("project");}} style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0",marginBottom:12,borderLeft:`4px solid ${SC[p.status]}`,cursor:"pointer"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:10}}>
-            <div style={{flex:1}}>
-              <div style={{fontWeight:700,fontSize:F(15),color:"#0f172a",lineHeight:1.3,marginBottom:6}}>{p.name}</div>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                <span style={{fontSize:F(11),padding:"3px 10px",borderRadius:8,background:SC[p.status]+"18",color:SC[p.status],fontWeight:700}}>{p.status}</span>
-                <span style={{fontSize:F(11),padding:"3px 9px",borderRadius:8,background:"#f1f5f9",color:"#475569"}}>{p.stage}</span>
-                <span style={{fontSize:F(11),padding:"3px 9px",borderRadius:8,background:"#e0f2fe",color:"#0369a1"}}>{p.financier}</span>
-                {driveSync[p.id]&&<span title={`Drive sync: ${driveSync[p.id].lastSync?.slice(0,10)}`} style={{fontSize:F(11),padding:"3px 8px",borderRadius:8,background:"#f0fdf4",color:"#15803d"}}>📂 Drive</span>}
+      <div style={{ fontSize: F(11), fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Cartera de Proyectos</div>
+      {projects.map(p => (
+        <div key={p.id} onClick={() => { setSel(p.id); setProjTab("overview"); setView("project"); }} style={{ background: "white", borderRadius: 10, padding: 14, border: "1px solid #e2e8f0", marginBottom: 10, borderLeft: `4px solid ${SC[p.status]}`, cursor: "pointer" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: F(14), color: "#0f172a", marginBottom: 5 }}>{p.name}</div>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                <span style={{ fontSize: F(10), padding: "2px 9px", borderRadius: 8, background: SC[p.status] + "18", color: SC[p.status], fontWeight: 700 }}>{p.status}</span>
+                <span style={{ fontSize: F(10), padding: "2px 8px", borderRadius: 8, background: "#f1f5f9", color: "#475569" }}>{p.stage}</span>
+                <span style={{ fontSize: F(10), padding: "2px 8px", borderRadius: 8, background: "#e0f2fe", color: "#0369a1" }}>{p.financier}</span>
               </div>
             </div>
-            <div style={{textAlign:"right",flexShrink:0}}>
-              <div style={{fontSize:F(16),fontWeight:800,color:"#1d4ed8"}}>{fCLP(p.budget)}</div>
-              <div style={{fontSize:F(10),color:"#94a3b8"}}>CLP</div>
+            <div style={{ textAlign: "right", flexShrink: 0 }}>
+              <div style={{ fontSize: F(15), fontWeight: 800, color: "#1d4ed8" }}>{fCLP(p.budget)}</div>
             </div>
           </div>
-          {p.aiSummary&&<p style={{fontSize:F(12),color:"#475569",lineHeight:1.5,margin:"0 0 10px",fontStyle:"italic",borderLeft:"2px solid #bfdbfe",paddingLeft:8}}>{p.aiSummary.slice(0,110)}…</p>}
-          {/* Reuniones próximas inline en card */}
-          {projEvs.length>0&&(
-            <div style={{marginBottom:8,padding:"6px 10px",background:"#eff6ff",borderRadius:6,fontSize:F(11),color:"#1e3a5f"}}>
-              📅 {projEvs.map(e=>`${fDate(e.start)} — ${e.title}`).slice(0,2).join(" · ")}{projEvs.length>2?` +${projEvs.length-2} más`:""}
-            </div>
-          )}
-          <div style={{display:"flex",gap:14,fontSize:F(11),color:"#94a3b8",borderTop:"1px solid #f8fafc",paddingTop:8}}>
-            <span>📄 {p.docs.length}</span><span>✉️ {p.emails.length}</span>
-            <span>✅ {p.tasks.filter(t=>t.status==="pending").length} pend.</span>
-            {gf.filter(f=>f.projectId===p.id&&f.status==="pendiente").length>0&&<span style={{color:"#dc2626"}}>📬 {gf.filter(f=>f.projectId===p.id&&f.status==="pendiente").length}</span>}
-            {projEvs.length>0&&<span style={{color:"#1d4ed8"}}>📅 {projEvs.length}</span>}
+          {p.aiSummary && <div style={{ fontSize: F(11), color: "#475569", lineHeight: 1.4, fontStyle: "italic", borderLeft: "2px solid #bfdbfe", paddingLeft: 8, marginBottom: 6 }}>{p.aiSummary.slice(0, 100)}…</div>}
+          <div style={{ display: "flex", gap: 12, fontSize: F(10), color: "#94a3b8", borderTop: "1px solid #f8fafc", paddingTop: 6 }}>
+            <span>📄 {p.docs.length}</span>
+            <span>✉️ {p.emails.length}</span>
+            <span>✅ {p.tasks.filter(t => t.status === "pending").length} pend.</span>
+            {follows.filter(f => f.projectId === p.id && f.status === "activo").length > 0 && <span style={{ color: "#dc2626" }}>📬 {follows.filter(f => f.projectId === p.id && f.status === "activo").length}</span>}
           </div>
         </div>
-      );})}
+      ))}
 
-      {/* RELOJ CONTROL (sin cambios, se mantiene igual) */}
-      {(()=>{
-        const today=new Date();const todayStr=today.toISOString().slice(0,10);const nowMin=today.getHours()*60+today.getMinutes();
-        const months=[...new Set(clockData.map(r=>r.date.slice(0,7)))].sort();
-        const selMonth=clockMonth;const monthData=clockData.filter(r=>r.date.startsWith(selMonth));
-        const days=monthData.map(r=>{const j=jornada(r.date);const eMin=toMin(r.entrada);const sMin=toMin(r.salida);const isToday=r.date===todayStr;
-          if(eMin===null&&sMin===null)return{...r,j,worked:null,extra:null,alert:"sin_registro"};
-          if(sMin===null&&!isToday)return{...r,j,worked:null,extra:null,alert:"sin_salida_hist"};
-          if(sMin===null&&isToday){const live=Math.max(0,nowMin-(eMin+j));return{...r,j,worked:null,extra:null,alert:"trabajando",expectedSalida:eMin+j,liveExtra:live};}
-          if(eMin===null)return{...r,j,worked:null,extra:null,alert:"sin_entrada_hist"};
-          const worked=sMin-eMin;const extra=worked-j;return{...r,j,worked,extra,alert:null};
+      {/* Reloj Control */}
+      {(() => {
+        const today = new Date(); const todayStr = today.toISOString().slice(0, 10); const nowMin = today.getHours() * 60 + today.getMinutes();
+        const months = [...new Set(clockData.map(r => r.date.slice(0, 7)))].sort();
+        const monthData = clockData.filter(r => r.date.startsWith(clockMonth));
+        const days = monthData.map(r => {
+          const j = jornMin(r.date); const eM = toMin(r.entrada); const sM = toMin(r.salida); const isT = r.date === todayStr;
+          if (eM === null && sM === null) return { ...r, j, extra: null };
+          if (sM === null && !isT) return { ...r, j, extra: null };
+          if (sM === null && isT) return { ...r, j, extra: null, live: Math.max(0, nowMin - (eM + j)), expSalida: eM + j };
+          if (eM === null) return { ...r, j, extra: null };
+          return { ...r, j, extra: (sM - eM) - j };
         });
-        const completed=days.filter(d=>d.extra!==null);const totalExtra=completed.reduce((a,d)=>a+(d.extra||0),0);
-        const extraH=Math.floor(Math.abs(totalExtra)/60);const extraM=Math.abs(totalExtra)%60;
-        const yearAll=clockData.map(r=>{const j=jornada(r.date);const eMin=toMin(r.entrada);const sMin=toMin(r.salida);if(!eMin||!sMin)return null;return sMin-eMin-j;}).filter(x=>x!==null);
-        const yearTotal=yearAll.reduce((a,v)=>a+v,0);
-        const todayRec=days.find(d=>d.date===todayStr);
-        const netColor=totalExtra>=0?"#059669":"#ef4444";const yearColor=yearTotal>=0?"#059669":"#ef4444";
-        const[,mo]=selMonth.split("-").map(Number);
-        return(
-          <div style={{marginTop:24}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
-              <div style={{fontSize:F(13),fontWeight:700,color:"#0284c7",textTransform:"uppercase",letterSpacing:1}}>🕐 Reloj Control 2026</div>
-              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                {months.map(m=>{const[,mm]=m.split("-").map(Number);return<button key={m} onClick={()=>setClockMonth(m)} style={{...btn(m===selMonth?"#0284c7":"#f1f5f9",m===selMonth?"white":"#374151"),fontSize:F(11),padding:"5px 10px"}}>{MONTHS_ES[mm]}</button>;})}
-                <button onClick={()=>setClockOpen(o=>!o)} style={{...btn("#e0f2fe","#0369a1"),fontSize:F(11),padding:"5px 10px"}}>{clockOpen?"▲ Ocultar":"▼ Detalle"}</button>
+        const completed = days.filter(d => d.extra !== null);
+        const totalExtra = completed.reduce((a, d) => a + (d.extra || 0), 0);
+        const yearExtra = clockData.map(r => { const j = jornMin(r.date); const eM = toMin(r.entrada); const sM = toMin(r.salida); if (!eM || !sM) return null; return (sM - eM) - j; }).filter(x => x !== null).reduce((a, v) => a + v, 0);
+        const nc = totalExtra >= 0 ? "#059669" : "#ef4444";
+        const yc = yearExtra >= 0 ? "#059669" : "#ef4444";
+        const [, mo] = clockMonth.split("-").map(Number);
+        const todayRec = days.find(d => d.date === todayStr);
+        return (
+          <div style={{ marginTop: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 6 }}>
+              <div style={{ fontSize: F(12), fontWeight: 700, color: "#0284c7", textTransform: "uppercase", letterSpacing: 1 }}>🕐 Reloj Control 2026</div>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                {months.map(m => { const [, mm] = m.split("-").map(Number); return <button key={m} onClick={() => setClockMonth(m)} style={{ ...btn(m === clockMonth ? "#0284c7" : "#f1f5f9", m === clockMonth ? "white" : "#374151"), fontSize: F(10), padding: "4px 9px" }}>{MONTHS_FULL[mm]}</button>; })}
+                <button onClick={() => setClockOpen(o => !o)} style={{ ...btn("#e0f2fe", "#0369a1"), fontSize: F(10), padding: "4px 9px" }}>{clockOpen ? "▲ Ocultar" : "▼ Ver"}</button>
               </div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:12}}>
-              {[{l:`Extra ${MONTHS_ES[mo]}`,v:(totalExtra>=0?"+":"")+fMin(totalExtra),c:netColor,bg:totalExtra>=0?"#f0fdf4":"#fef2f2",i:"⏱️"},{l:"Horas completas",v:`${extraH}h ${extraM}m`,c:"#7c3aed",bg:"#f5f3ff",i:"✅"},{l:"Días registrados",v:`${completed.length}d`,c:"#0284c7",bg:"#eff6ff",i:"📅"},{l:"Acum. anual 2026",v:(yearTotal>=0?"+":"")+fMin(yearTotal),c:yearColor,bg:yearTotal>=0?"#f0fdf4":"#fef2f2",i:"📊"}].map(({l,v,c,bg,i})=>(
-                <div key={l} style={{background:bg,borderRadius:10,padding:14,border:`1px solid ${c}22`}}>
-                  <div style={{fontSize:F(10),color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:0.7,marginBottom:4}}>{l}</div>
-                  <div style={{fontSize:F(17),fontWeight:800,color:c}}>{i} {v}</div>
+            <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "repeat(4,1fr)", gap: 8, marginBottom: 10 }}>
+              {[
+                { l: `Extra ${MONTHS_FULL[mo]}`, v: (totalExtra >= 0 ? "+" : "") + fMin(totalExtra), c: nc, bg: totalExtra >= 0 ? "#f0fdf4" : "#fef2f2" },
+                { l: "Días registrados", v: `${completed.length}d`, c: "#0284c7", bg: "#eff6ff" },
+                { l: "Acum. 2026", v: (yearExtra >= 0 ? "+" : "") + fMin(yearExtra), c: yc, bg: yearExtra >= 0 ? "#f0fdf4" : "#fef2f2" },
+                { l: "Hoy", v: todayRec ? `${todayRec.entrada || "—"} → ${todayRec.salida || "en curso"}` : "Sin registro", c: "#7c3aed", bg: "#f5f3ff" },
+              ].map(({ l, v, c, bg }) => (
+                <div key={l} style={{ background: bg, borderRadius: 8, padding: 12, border: `1px solid ${c}22` }}>
+                  <div style={{ fontSize: F(9), color: "#64748b", fontWeight: 700, textTransform: "uppercase", marginBottom: 3 }}>{l}</div>
+                  <div style={{ fontSize: F(15), fontWeight: 800, color: c }}>{v}</div>
                 </div>
               ))}
             </div>
-            {selMonth==="2026-04"&&todayRec&&todayRec.alert==="trabajando"&&(
-              <div style={{padding:"12px 16px",background:"#eff6ff",border:"2px solid #0284c7",borderRadius:10,marginBottom:12}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
-                  <div>
-                    <div style={{fontSize:F(13),fontWeight:800,color:"#0284c7",marginBottom:2}}>🟢 En jornada — Entrada {todayRec.entrada} · {isFri(todayStr)?"Viernes 8h":"9h"}</div>
-                    <div style={{fontSize:F(12),color:"#475569"}}>Salida normal: <strong>{String(Math.floor(todayRec.expectedSalida/60)).padStart(2,"0")}:{String(todayRec.expectedSalida%60).padStart(2,"0")}</strong>{todayRec.liveExtra>0&&<span style={{color:"#7c3aed",fontWeight:700,marginLeft:10}}>· +{fMin(todayRec.liveExtra)} extra ahora</span>}</div>
-                  </div>
-                  {todayRec.liveExtra>0&&<div style={{fontSize:F(20),fontWeight:900,color:"#7c3aed"}}>+{fMin(todayRec.liveExtra)}</div>}
+            {todayRec?.live != null && todayRec.live > 0 && (
+              <div style={{ padding: "10px 14px", background: "#eff6ff", border: "2px solid #0284c7", borderRadius: 8, marginBottom: 10 }}>
+                <div style={{ fontSize: F(12), fontWeight: 700, color: "#0284c7" }}>🟢 En jornada · Entrada {todayRec.entrada}</div>
+                <div style={{ fontSize: F(11), color: "#475569" }}>Salida normal: <strong>{String(Math.floor(todayRec.expSalida / 60)).padStart(2, "0")}:{String(todayRec.expSalida % 60).padStart(2, "0")}</strong> · <span style={{ color: "#7c3aed", fontWeight: 700 }}>+{fMin(todayRec.live)} ahora</span></div>
+              </div>
+            )}
+            {clockOpen && (
+              <div style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+                <div style={{ padding: "8px 14px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: 4 }}>
+                  {["Fecha", "Jorn.", "Entrada", "Salida", "Extra"].map(h => <div key={h} style={{ fontSize: F(9), fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>{h}</div>)}
+                </div>
+                {[...days].reverse().map(d => {
+                  const isT = d.date === todayStr;
+                  const ec = d.extra > 0 ? "#059669" : d.extra < 0 ? "#ef4444" : "#64748b";
+                  return (
+                    <div key={d.date} style={{ padding: "8px 14px", borderBottom: "1px solid #f8fafc", display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: 4, background: isT ? "#eff6ff" : "white" }}>
+                      <div style={{ fontSize: F(11), fontWeight: isT ? 700 : 400, color: isT ? "#0284c7" : "#0f172a" }}>{fDate(d.date)}{isT && <span style={{ marginLeft: 4, fontSize: F(8), color: "#0284c7" }}>HOY</span>}{isFri(d.date) && <span style={{ marginLeft: 3, fontSize: F(8), color: "#d97706" }}>VIE</span>}</div>
+                      <div style={{ fontSize: F(10), color: "#94a3b8" }}>{d.j === 480 ? "8h" : "9h"}</div>
+                      <div style={{ fontSize: F(11) }}>{d.entrada || "—"}</div>
+                      <div style={{ fontSize: F(11), color: d.salida ? "#0f172a" : "#f59e0b" }}>{d.salida || (isT ? "⏳" : "—")}</div>
+                      <div style={{ fontSize: F(12), fontWeight: 700, color: d.extra != null ? ec : "#94a3b8" }}>{d.extra != null ? (d.extra > 0 ? `+${fMin(d.extra)}` : d.extra < 0 ? `-${fMin(Math.abs(d.extra))}` : "=") : "—"}</div>
+                    </div>
+                  );
+                })}
+                <div style={{ padding: "8px 14px", background: "#f1f5f9", display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: 4 }}>
+                  <div style={{ fontSize: F(11), fontWeight: 700, gridColumn: "1/5" }}>TOTAL {MONTHS_FULL[mo].toUpperCase()}</div>
+                  <div style={{ fontSize: F(13), fontWeight: 900, color: nc }}>{totalExtra >= 0 ? "+" : ""}{fMin(totalExtra)}</div>
                 </div>
               </div>
             )}
-            {selMonth==="2026-04"&&!todayRec&&<div style={{padding:"12px 16px",background:"#fef2f2",border:"2px solid #ef4444",borderRadius:10,marginBottom:12,fontSize:F(13),color:"#991b1b",fontWeight:600}}>🚨 Hoy no hay registro de entrada. ¿Olvidaste marcar?</div>}
-            {clockOpen&&(
-              <div style={{background:"white",borderRadius:10,border:"1px solid #e2e8f0",overflow:"hidden",marginTop:4}}>
-                <div style={{padding:"9px 14px",background:"#f8fafc",borderBottom:"1px solid #e2e8f0",display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:4}}>
-                  {["Fecha","Jornada","Entrada","Salida","Extra"].map(h=><div key={h} style={{fontSize:F(10),fontWeight:700,color:"#64748b",textTransform:"uppercase"}}>{h}</div>)}
-                </div>
-                {[...days].reverse().map(d=>{const isToday=d.date===todayStr;const ec=d.extra>0?"#059669":d.extra<0?"#ef4444":"#64748b";return(
-                  <div key={d.date} style={{padding:"10px 14px",borderBottom:"1px solid #f8fafc",display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:4,background:isToday?"#eff6ff":"white",alignItems:"center"}}>
-                    <div style={{fontSize:F(12),fontWeight:isToday?700:400,color:isToday?"#0284c7":"#0f172a"}}>{fDate(d.date)}{isToday&&<span style={{fontSize:F(9),marginLeft:4,color:"#0284c7",fontWeight:700}}>HOY</span>}{isFri(d.date)&&<span style={{fontSize:F(9),marginLeft:4,color:"#d97706"}}>VIE</span>}</div>
-                    <div style={{fontSize:F(11),color:"#94a3b8"}}>{d.j===480?"8h":"9h"}</div>
-                    <div style={{fontSize:F(12),color:"#0f172a"}}>{d.entrada||"—"}</div>
-                    <div style={{fontSize:F(12),color:d.salida?"#0f172a":"#f59e0b"}}>{d.salida||(isToday?"⏳":"—")}</div>
-                    <div style={{fontSize:F(13),fontWeight:700,color:d.extra!=null?ec:"#94a3b8"}}>{d.extra!=null?(d.extra>0?`+${fMin(d.extra)}`:d.extra<0?`-${fMin(Math.abs(d.extra))}`:"="):"—"}</div>
-                  </div>
-                );})}
-                <div style={{padding:"10px 14px",background:"#f1f5f9",borderTop:"2px solid #e2e8f0",display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:4}}>
-                  <div style={{fontSize:F(12),fontWeight:700,color:"#0f172a",gridColumn:"1/5"}}>TOTAL {MONTHS_ES[mo].toUpperCase()}</div>
-                  <div style={{fontSize:F(14),fontWeight:900,color:netColor}}>{totalExtra>=0?"+":""}{fMin(totalExtra)}</div>
-                </div>
-              </div>
-            )}
-            <div style={{marginTop:10,padding:"10px 14px",background:"#f8fafc",borderRadius:8,border:"1px solid #e2e8f0",fontSize:F(11),color:"#64748b"}}>
-              💡 <strong style={{color:yearColor}}>{fMin(Math.abs(yearTotal))}</strong> {yearTotal>=0?"acumuladas en 2026":"a deber en 2026"} · {MONTHS_ES[mo]}: <strong style={{color:netColor}}>{totalExtra>=0?"+":""}{fMin(totalExtra)}</strong>
-            </div>
           </div>
         );
       })()}
 
-      <button onClick={()=>{setForm(EF);setEditId(null);setShowForm(true);}} style={{...btn("#0f172a"),width:"100%",marginTop:16,padding:14,fontSize:F(13)}}>+ Nuevo Proyecto</button>
+      {/* Botón nuevo proyecto */}
+      <button onClick={() => { setForm({ name: "", budget: "", stage: "Formulación", status: "Pendiente", deadline: "", financier: "GORE", program: "", desc: "", notes: "", licitId: "" }); setEditId(null); setShowForm(true); }} style={{ ...btn("#0f172a"), width: "100%", marginTop: 16, padding: 13, fontSize: F(12) }}>+ Nuevo Proyecto</button>
     </div>
   );
 
-  // ── TABS PROYECTO ─────────────────────────────────
-  const TABS=[["overview","📋 Resumen"],["licitacion","🏛️ Licitación"],["notes","📝 Notas"],["docs","📄 Docs"],["tasks","✅ Tareas"],["emails","✉️ Correos"],["calendar","📅 Reuniones"]];
+  // ══════════════════════════════════════════════════
+  // VISTA PROYECTO
+  // ══════════════════════════════════════════════════
+  const projTabs = [["overview", "📋 Resumen"], ["licit", "🏛️ Licitación"], ["notes", "📝 Notas"], ["docs", "📄 Docs"], ["tasks", "✅ Tareas"], ["emails", "✉️ Correos"]];
 
-  const projDetail=proj&&(
-    <div style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
-      <div style={{background:"white",borderBottom:"1px solid #e2e8f0",padding:"10px 14px",display:"flex",gap:5,overflowX:"auto",flexShrink:0,WebkitOverflowScrolling:"touch"}}>
-        {TABS.map(([k,l])=>{
-          const badge = k==="docs"?proj.docs.length:k==="tasks"?proj.tasks.filter(t=>t.status==="pending").length:k==="emails"?proj.emails.length:k==="calendar"?eventsForProject(proj.id).filter(e=>e.start>=new Date().toISOString().slice(0,10)).length:null;
-          return(
-            <button key={k} onClick={()=>setTab(k)} style={{padding:"9px 14px",borderRadius:7,border:"none",background:tab===k?"#1d4ed8":"#f1f5f9",color:tab===k?"white":"#64748b",cursor:"pointer",fontSize:F(12),fontWeight:tab===k?700:500,whiteSpace:"nowrap",flexShrink:0}}>
-              {l}{badge!==null&&<span style={{marginLeft:3,fontSize:F(10),background:tab===k?"#3b82f6":"#e2e8f0",color:tab===k?"white":"#64748b",borderRadius:8,padding:"1px 6px"}}>{badge}</span>}
+  const projView = proj && (
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
+      <div style={{ display: "flex", gap: 4, padding: "10px 14px", background: "white", borderBottom: "1px solid #e2e8f0", overflowX: "auto", flexShrink: 0 }}>
+        {projTabs.map(([k, l]) => {
+          const badge = k === "docs" ? proj.docs.length : k === "tasks" ? proj.tasks.filter(t => t.status === "pending").length : k === "emails" ? proj.emails.length : null;
+          return (
+            <button key={k} onClick={() => setProjTab(k)} style={{ padding: "7px 12px", borderRadius: 6, border: "none", background: projTab === k ? "#1d4ed8" : "#f1f5f9", color: projTab === k ? "white" : "#64748b", cursor: "pointer", fontSize: F(11), fontWeight: projTab === k ? 700 : 500, whiteSpace: "nowrap" }}>
+              {l}{badge !== null && badge > 0 && <span style={{ marginLeft: 4, fontSize: F(9), background: projTab === k ? "#3b82f6" : "#e2e8f0", color: projTab === k ? "white" : "#64748b", borderRadius: 8, padding: "1px 5px" }}>{badge}</span>}
             </button>
           );
         })}
       </div>
 
-      <div style={{flex:1,...scroll,padding:mob?"16px":"24px",paddingBottom:mob?90:24}}>
-        {tab==="overview"&&(
-          <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            <div style={{background:"white",borderRadius:10,padding:18,border:"1px solid #e2e8f0"}}>
-              <div style={{fontSize:F(11),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:14}}>Ficha del Proyecto</div>
-              {[["Estado",<span key="s" style={{padding:"4px 12px",borderRadius:8,background:SC[proj.status]+"18",color:SC[proj.status],fontWeight:700,fontSize:F(12)}}>{proj.status}</span>],["Etapa",proj.stage],["Presupuesto",`${fCLP(proj.budget)} CLP`],["Fuente",proj.financier||"—"],["Programa",proj.program||"—"],["Vencimiento",fDate(proj.deadline)]].map(([k,v])=>(
-                <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:"1px solid #f8fafc",gap:8}}>
-                  <span style={{fontSize:F(13),color:"#64748b"}}>{k}</span>
-                  <span style={{fontSize:F(13),fontWeight:700,color:"#0f172a",textAlign:"right"}}>{v}</span>
+      <div style={{ flex: 1, ...scroll, padding: mob ? "14px 14px 90px" : "20px" }}>
+        {/* OVERVIEW */}
+        {projTab === "overview" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ background: "white", borderRadius: 10, padding: 16, border: "1px solid #e2e8f0" }}>
+              <div style={{ fontSize: F(10), fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Ficha del Proyecto</div>
+              {[["Estado", <span key="s" style={{ padding: "3px 10px", borderRadius: 8, background: SC[proj.status] + "18", color: SC[proj.status], fontWeight: 700, fontSize: F(11) }}>{proj.status}</span>], ["Etapa", proj.stage], ["Presupuesto", `${fCLP(proj.budget)} CLP`], ["Financiamiento", `${proj.financier} / ${proj.program || "—"}`], ["Vencimiento", fDate(proj.deadline)]].map(([k, v]) => (
+                <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid #f8fafc", gap: 8 }}>
+                  <span style={{ fontSize: F(12), color: "#64748b" }}>{k}</span>
+                  <span style={{ fontSize: F(12), fontWeight: 700, color: "#0f172a", textAlign: "right" }}>{v}</span>
                 </div>
               ))}
-              {driveSync[proj.id]&&<div style={{marginTop:10,padding:"6px 10px",background:"#f0fdf4",borderRadius:6,fontSize:F(11),color:"#15803d"}}>📂 Última sync Drive: {driveSync[proj.id].lastSync?.slice(0,10)}</div>}
-              {proj.codigoProyecto&&(
-                <div style={{marginTop:8,padding:"6px 10px",background:"#f8fafc",borderRadius:6,fontSize:F(11),color:"#334155"}}>
-                  🔑 Código: <strong style={{fontFamily:"monospace"}}>{proj.codigoProyecto}</strong>
-                  {proj.codigoSIGE&&<span style={{color:"#94a3b8",marginLeft:8}}>SIGE: {proj.codigoSIGE}</span>}
+              {proj.codigoProyecto && (
+                <div style={{ marginTop: 10, padding: "6px 10px", background: "#f8fafc", borderRadius: 6, fontSize: F(11), color: "#334155" }}>
+                  🔑 <strong style={{ fontFamily: "monospace" }}>{proj.codigoProyecto}</strong>
+                  {proj.codigoSIGE && <span style={{ color: "#94a3b8", marginLeft: 8 }}>SIGE: {proj.codigoSIGE}</span>}
                 </div>
               )}
-              <button onClick={()=>{setForm({...proj,budget:proj.budget||""});setEditId(proj.id);setShowForm(true);}} style={{...btn("#f1f5f9","#374151"),width:"100%",marginTop:14,fontSize:F(13)}}>✏️ Editar Proyecto</button>
+              <button onClick={() => { setForm({ ...proj, budget: proj.budget || "" }); setEditId(proj.id); setShowForm(true); }} style={{ ...btn("#f1f5f9", "#374151"), width: "100%", marginTop: 12, fontSize: F(12) }}>✏️ Editar Proyecto</button>
             </div>
-            {proj.aiSummary&&<div style={{background:"#eff6ff",borderRadius:10,padding:16,border:"1px solid #bfdbfe"}}><div style={{fontSize:F(11),fontWeight:700,color:"#1d4ed8",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>✨ Resumen IA</div><p style={{fontSize:F(13),color:"#1e3a5f",lineHeight:1.7,margin:0}}>{proj.aiSummary}</p></div>}
-            {proj.licitId&&<LicitCard p={proj}/>}
-            {/* Panel convenio del proyecto */}
-            {(proj.convenio||convenioData.find(c=>c.projectId===proj.id))&&(()=>{
-              const cd = convenioData.find(c=>c.projectId===proj.id);
-              const cv = proj.convenio||{};
-              const fin = cd?.plazoEjecucionFin || cv.plazoEjecucionFin || proj.deadline;
-              const cvFin = cd?.plazoConvenioFin || cv.plazoConvenioFin;
-              const today = new Date().toISOString().slice(0,10);
-              const daysLeft = fin ? Math.round((new Date(fin)-new Date())/(1000*60*60*24)) : null;
-              const pendMods = cd?.modificacionesPendientes||cv.modificaciones?.filter(m=>m.estado!=="aprobada")||[];
-              const alertColor = daysLeft===null?"#64748b":daysLeft<30?"#ef4444":daysLeft<90?"#f97316":"#059669";
-              const alertBg = daysLeft===null?"#f8fafc":daysLeft<30?"#fef2f2":daysLeft<90?"#fff7ed":"#f0fdf4";
-              return(
-                <div style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                    <div style={{fontSize:F(11),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1}}>📋 Convenio & Plazos</div>
-                    <button onClick={trackConvenios} disabled={trackingConvenio} style={{...btn(trackingConvenio?"#94a3b8":"#7c3aed"),fontSize:F(10),padding:"4px 10px"}}>
-                      {trackingConvenio?"⏳":"🔄"} Actualizar
-                    </button>
+            {proj.aiSummary && <div style={{ background: "#eff6ff", borderRadius: 10, padding: 14, border: "1px solid #bfdbfe" }}><div style={{ fontSize: F(10), fontWeight: 700, color: "#1d4ed8", textTransform: "uppercase", marginBottom: 8 }}>✨ Resumen IA</div><p style={{ fontSize: F(12), color: "#1e3a5f", lineHeight: 1.7, margin: 0 }}>{proj.aiSummary}</p></div>}
+            {proj.licitId && (() => {
+              const ld = proj.licitData;
+              return (
+                <div style={{ background: "white", borderRadius: 10, padding: 14, border: `1px solid ${ld ? (MPC[ld.estado] || "#e2e8f0") + "55" : "#e2e8f0"}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: ld ? 10 : 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span>🏛️</span><div><div style={{ fontSize: F(12), fontWeight: 700 }}>MP · {proj.licitId}</div>{ld && <div style={{ fontSize: F(10), color: "#64748b" }}>{ld.nombre}</div>}</div></div>
+                    <div style={{ display: "flex", gap: 5 }}>
+                      {ld && <span style={{ fontSize: F(10), padding: "2px 8px", borderRadius: 8, background: (MPC[ld.estado] || "#94a3b8") + "18", color: MPC[ld.estado] || "#64748b", fontWeight: 700 }}>{ld.estado}</span>}
+                      <button onClick={() => doFetchLicit(proj)} disabled={fetchLicit === proj.id} style={{ ...btn(fetchLicit === proj.id ? "#94a3b8" : "#0f172a"), fontSize: F(10), padding: "5px 10px" }}>{fetchLicit === proj.id ? "⏳" : "🔄"}</button>
+                    </div>
                   </div>
-                  {proj.codigoProyecto&&(
-                    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
-                      <span style={{fontSize:F(11),padding:"3px 10px",borderRadius:8,background:"#f1f5f9",color:"#334155",fontWeight:700,fontFamily:"monospace"}}>
-                        🔑 {proj.codigoProyecto}
-                      </span>
-                      {proj.codigoSIGE&&<span style={{fontSize:F(11),padding:"3px 10px",borderRadius:8,background:"#eff6ff",color:"#1e3a5f",fontFamily:"monospace"}}>SIGE: {proj.codigoSIGE}</span>}
+                  {ld && ld.estado !== "Desconocido" && (
+                    <div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 6 }}>
+                        {[["Cierre", fDate(ld.fechaCierre)], ["Adjudicación", fDate(ld.fechaAdjudicacion)], ["Monto", ld.monto || "—"]].map(([l, v]) => (
+                          <div key={l} style={{ background: "#f8fafc", borderRadius: 6, padding: "7px 9px" }}><div style={{ fontSize: F(9), color: "#94a3b8", textTransform: "uppercase", marginBottom: 2 }}>{l}</div><div style={{ fontSize: F(11), fontWeight: 700 }}>{v}</div></div>
+                        ))}
+                      </div>
+                      {ld.url && <a href={ld.url} target="_blank" rel="noreferrer" style={{ fontSize: F(11), color: "#1d4ed8" }}>Ver en MP →</a>}
                     </div>
                   )}
-                  <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
-                    {fin&&(
-                      <div style={{background:alertBg,borderRadius:8,padding:"10px 12px",border:`1px solid ${alertColor}33`}}>
-                        <div style={{fontSize:F(10),color:"#64748b",textTransform:"uppercase",letterSpacing:0.7,marginBottom:3}}>Vence ejecución</div>
-                        <div style={{fontSize:F(14),fontWeight:700,color:alertColor}}>{fDate(fin)}</div>
-                        {daysLeft!==null&&<div style={{fontSize:F(11),color:alertColor,marginTop:2}}>
-                          {daysLeft>0?`${daysLeft} días restantes`:daysLeft===0?"⚠️ Vence hoy":`⚠️ Vencido hace ${Math.abs(daysLeft)} días`}
-                        </div>}
-                      </div>
-                    )}
-                    {cvFin&&(
-                      <div style={{background:"#f8fafc",borderRadius:8,padding:"10px 12px",border:"1px solid #e2e8f0"}}>
-                        <div style={{fontSize:F(10),color:"#64748b",textTransform:"uppercase",letterSpacing:0.7,marginBottom:3}}>Vence convenio</div>
-                        <div style={{fontSize:F(14),fontWeight:700,color:"#475569"}}>{fDate(cvFin)}</div>
-                        <div style={{fontSize:F(11),color:"#94a3b8",marginTop:2}}>{Math.round((new Date(cvFin)-new Date())/(1000*60*60*24))} días</div>
-                      </div>
-                    )}
+                </div>
+              );
+            })()}
+            {proj.convenio && (
+              <div style={{ background: "white", borderRadius: 10, padding: 14, border: "1px solid #e2e8f0" }}>
+                <div style={{ fontSize: F(10), fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 10 }}>📋 Convenio & Plazos</div>
+                {[["Vence ejecución", fDate(proj.convenio.plazoEjecucionFin)], ["Vence convenio", fDate(proj.convenio.plazoConvenioFin)]].map(([l, v]) => (
+                  <div key={l} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #f8fafc" }}>
+                    <span style={{ fontSize: F(12), color: "#64748b" }}>{l}</span>
+                    <span style={{ fontSize: F(12), fontWeight: 700 }}>{v}</span>
                   </div>
-                  {/* Modificaciones */}
-                  {(cv.modificaciones||[]).length>0&&(
-                    <div style={{marginBottom:10}}>
-                      <div style={{fontSize:F(10),color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.7,marginBottom:6}}>Modificaciones</div>
-                      {cv.modificaciones.map((m,i)=>(
-                        <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:5,fontSize:F(12)}}>
-                          <span style={{color:m.estado==="aprobada"?"#059669":"#f59e0b",flexShrink:0,marginTop:1}}>{m.estado==="aprobada"?"✅":"⏳"}</span>
-                          <div>
-                            <span style={{color:"#334155"}}>{m.tipo}</span>
-                            {m.oficio&&<span style={{color:"#94a3b8",marginLeft:6}}>{m.oficio}</span>}
-                            {m.aprobacion&&<span style={{color:"#64748b",marginLeft:6}}>· {fDate(m.aprobacion)}</span>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {/* Trámites pendientes detectados por Gmail */}
-                  {pendMods.length>0&&pendMods.map((pm,i)=>(
-                    <div key={i} style={{background:"#fffbeb",borderRadius:8,padding:"10px 12px",border:"1px solid #fde68a",marginTop:6}}>
-                      <div style={{fontSize:F(11),fontWeight:700,color:"#92400e",marginBottom:4}}>⏳ {pm.tipo} — EN TRÁMITE</div>
-                      {pm.fechaSolicitud&&<div style={{fontSize:F(11),color:"#78350f"}}>Solicitado: {fDate(pm.fechaSolicitud)}</div>}
-                      {pm.proximoPaso&&<div style={{fontSize:F(11),color:"#92400e",marginTop:3,fontWeight:600}}>→ {pm.proximoPaso}</div>}
-                      {pm.emailUrl&&<a href={pm.emailUrl} target="_blank" rel="noreferrer" style={{fontSize:F(11),color:"#1d4ed8",fontWeight:700,marginTop:4,display:"block"}}>Ver correo →</a>}
+                ))}
+                {proj.convenio.modificaciones?.map((m, i) => (
+                  <div key={i} style={{ marginTop: 8, fontSize: F(11), color: "#334155", display: "flex", gap: 8 }}>
+                    <span>{m.estado === "aprobada" ? "✅" : "⏳"}</span>
+                    <div>{m.tipo} · {m.oficio} · {fDate(m.aprobacion)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ background: "white", borderRadius: 10, padding: 14, border: "1px solid #e2e8f0" }}>
+              <div style={{ fontSize: F(10), fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 8 }}>Descripción</div>
+              <p style={{ fontSize: F(12), color: "#334155", lineHeight: 1.6, margin: 0 }}>{proj.desc}</p>
+            </div>
+          </div>
+        )}
+
+        {/* LICITACIÓN */}
+        {projTab === "licit" && (
+          <div>
+            <div style={{ background: "white", borderRadius: 10, padding: 14, border: "1px solid #e2e8f0", marginBottom: 12 }}>
+              <label style={{ fontSize: F(11), fontWeight: 700, display: "block", marginBottom: 6 }}>ID Licitación Mercado Público</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={proj.licitId || ""} onChange={e => setProjects(prev => prev.map(p => p.id === proj.id ? { ...p, licitId: e.target.value } : p))} placeholder="Ej: 1431841-10-B226" style={{ ...inp, flex: 1, fontFamily: "monospace", fontWeight: 700 }} />
+                <button onClick={() => doFetchLicit(proj)} disabled={!proj.licitId || fetchLicit === proj.id} style={{ ...btn(!proj.licitId || fetchLicit === proj.id ? "#94a3b8" : "#7c3aed"), padding: "11px 14px" }}>
+                  {fetchLicit === proj.id ? "⏳" : "🔍"}
+                </button>
+              </div>
+            </div>
+            {proj.licitData && (() => {
+              const ld = proj.licitData;
+              return (
+                <div style={{ background: "white", borderRadius: 10, padding: 14, border: `1px solid ${(MPC[ld.estado] || "#e2e8f0") + "55"}` }}>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontSize: F(11), padding: "3px 10px", borderRadius: 8, background: (MPC[ld.estado] || "#94a3b8") + "18", color: MPC[ld.estado] || "#64748b", fontWeight: 700 }}>{ld.estado}</span>
+                  </div>
+                  {ld.descripcion && <p style={{ fontSize: F(12), color: "#334155", lineHeight: 1.5, margin: "0 0 10px", padding: "8px 10px", background: "#f8fafc", borderRadius: 6 }}>{ld.descripcion}</p>}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
+                    {[["Publicación", fDate(ld.fechaPublicacion)], ["Cierre", fDate(ld.fechaCierre)], ["Adjudicación", fDate(ld.fechaAdjudicacion)]].map(([l, v]) => (
+                      <div key={l} style={{ background: "#f1f5f9", borderRadius: 7, padding: "8px 10px" }}><div style={{ fontSize: F(9), color: "#94a3b8", textTransform: "uppercase", marginBottom: 2 }}>{l}</div><div style={{ fontSize: F(12), fontWeight: 700 }}>{v}</div></div>
+                    ))}
+                  </div>
+                  {ld.url && <a href={ld.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 8, fontSize: F(11), color: "#1d4ed8" }}>Ver en Mercado Público →</a>}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* NOTAS */}
+        {projTab === "notes" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ background: "white", borderRadius: 10, padding: 14, border: "1px solid #e2e8f0" }}>
+              <label style={{ fontSize: F(11), fontWeight: 700, color: "#64748b", display: "block", marginBottom: 8 }}>Notas de gestión</label>
+              <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)} onBlur={saveNotes} rows={10} placeholder="Notas sobre gestiones, reuniones, pendientes…" style={{ ...inp, resize: "vertical", fontSize: F(12), lineHeight: 1.6 }} />
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <button onClick={saveNotes} style={{ ...btn("#059669"), fontSize: F(12) }}>💾 Guardar notas</button>
+                <button onClick={doGenSummary} disabled={genSum || !notesDraft.trim()} style={{ ...btn(genSum ? "#94a3b8" : "#1d4ed8"), fontSize: F(12), opacity: genSum ? 0.6 : 1 }}>
+                  {genSum ? "⏳ Generando…" : "✨ Generar resumen con IA"}
+                </button>
+              </div>
+            </div>
+            {proj.aiSummary && <div style={{ background: "#eff6ff", borderRadius: 10, padding: 14, border: "1px solid #bfdbfe" }}><div style={{ fontSize: F(10), fontWeight: 700, color: "#1d4ed8", textTransform: "uppercase", marginBottom: 8 }}>✨ Resumen IA</div><p style={{ fontSize: F(12), color: "#1e3a5f", lineHeight: 1.7, margin: 0 }}>{proj.aiSummary}</p></div>}
+          </div>
+        )}
+
+        {/* DOCS */}
+        {projTab === "docs" && (
+          <div>
+            <button onClick={() => fileRef.current?.click()} disabled={extracting} style={{ ...btn(extracting ? "#94a3b8" : "#0284c7"), width: "100%", marginBottom: 14, padding: 13 }}>
+              {extracting ? "⏳ Procesando con IA…" : "📎 Subir Documento (PDF / Imagen)"}
+            </button>
+            {proj.docs.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", border: "2px dashed #e2e8f0", borderRadius: 10 }}><div style={{ fontSize: F(30), marginBottom: 8 }}>📄</div><div style={{ fontSize: F(12) }}>Sin documentos</div></div>}
+            {proj.docs.map(d => {
+              let ex = {}; try { ex = JSON.parse(d.extracted || "{}"); } catch {}
+              return (
+                <div key={d.id} style={{ background: "white", borderRadius: 10, padding: 14, border: "1px solid #e2e8f0", marginBottom: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                    <div><div style={{ fontWeight: 700, fontSize: F(13) }}>📄 {d.name}</div><div style={{ fontSize: F(10), color: "#94a3b8" }}>{d.docType} · {fDate(d.uploadedAt)}</div></div>
+                    <button onClick={() => delDoc(d.id)} style={{ background: "none", border: "none", color: "#cbd5e1", cursor: "pointer", fontSize: F(16) }}>✕</button>
+                  </div>
+                  {d.summary && <p style={{ fontSize: F(12), color: "#334155", lineHeight: 1.5, background: "#f8fafc", padding: "8px 10px", borderRadius: 6, margin: 0 }}>{d.summary}</p>}
+                  {ex.dates?.length > 0 && ex.dates.map((dt, i) => <div key={i} style={{ fontSize: F(11), color: "#334155", padding: "2px 0", marginTop: 4 }}>📅 {typeof dt === "object" ? `${dt.date} — ${dt.description}` : dt}</div>)}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* TASKS */}
+        {projTab === "tasks" && (
+          <div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              <input value={newTask} onChange={e => setNewTask(e.target.value)} onKeyDown={e => e.key === "Enter" && addTask()} placeholder="Nueva tarea…" style={{ ...inp, flex: 1 }} />
+              <button onClick={addTask} style={{ ...btn("#1d4ed8"), padding: "10px 16px", fontSize: F(16) }}>+</button>
+            </div>
+            {proj.tasks.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", border: "2px dashed #e2e8f0", borderRadius: 10, fontSize: F(12) }}>Sin tareas</div>}
+            {["pending", "done"].map(st => {
+              const ts = proj.tasks.filter(t => t.status === st);
+              if (!ts.length) return null;
+              return (
+                <div key={st} style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: F(10), fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 7 }}>{st === "pending" ? "Pendientes" : "Completadas"}</div>
+                  {ts.map(t => (
+                    <div key={t.id} style={{ background: "white", borderRadius: 8, padding: "11px 14px", border: "1px solid #e2e8f0", marginBottom: 6, display: "flex", alignItems: "center", gap: 10, opacity: st === "done" ? 0.55 : 1 }}>
+                      <input type="checkbox" checked={st === "done"} onChange={() => toggleTask(t.id)} style={{ cursor: "pointer", width: 18, height: 18, accentColor: "#1d4ed8", flexShrink: 0 }} />
+                      <span style={{ fontSize: F(13), flex: 1, textDecoration: st === "done" ? "line-through" : "none", color: st === "done" ? "#94a3b8" : "#1e293b" }}>{t.text}</span>
+                      <button onClick={() => delTask(t.id)} style={{ background: "none", border: "none", color: "#e2e8f0", cursor: "pointer", fontSize: F(15) }}>✕</button>
                     </div>
                   ))}
                 </div>
               );
-            })()}
-            {/* Reuniones del proyecto en Overview */}
-            <CalMini projId={proj.id}/>
-            <div style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0"}}><div style={{fontSize:F(11),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Descripción Técnica</div><p style={{fontSize:F(13),color:"#334155",lineHeight:1.7,margin:0}}>{proj.desc}</p></div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
-              {[{l:"Docs",v:proj.docs.length,i:"📄",c:"#0284c7"},{l:"Correos",v:proj.emails.length,i:"✉️",c:"#7c3aed"},{l:"Pendientes",v:proj.tasks.filter(t=>t.status==="pending").length,i:"✅",c:"#059669"},{l:"Reuniones",v:eventsForProject(proj.id).filter(e=>e.start>=new Date().toISOString().slice(0,10)).length,i:"📅",c:"#1d4ed8"}].map(({l,v,i,c})=>(
-                <div key={l} style={{background:"white",borderRadius:10,padding:"16px 10px",border:"1px solid #e2e8f0",textAlign:"center"}}>
-                  <div style={{fontSize:F(20)}}>{i}</div><div style={{fontSize:F(22),fontWeight:800,color:c,lineHeight:1.2}}>{v}</div><div style={{fontSize:F(11),color:"#94a3b8",marginTop:3}}>{l}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Tab Reuniones del Proyecto */}
-        {tab==="calendar"&&(
-          <div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <div style={{fontSize:F(13),fontWeight:700,color:"#1d4ed8"}}>Reuniones asociadas al proyecto</div>
-              <button onClick={syncCalendar} disabled={syncingCal} style={{...btn(syncingCal?"#94a3b8":"#0284c7"),fontSize:F(11),padding:"6px 12px",opacity:syncingCal?0.7:1}}>
-                {syncingCal?"⏳":"🔄"} Sync Calendar
-              </button>
-            </div>
-            {eventsForProject(proj.id).length===0&&(
-              <div style={{background:"white",borderRadius:10,padding:40,textAlign:"center",border:"2px dashed #e2e8f0"}}>
-                <div style={{fontSize:F(30),marginBottom:8}}>📅</div>
-                <div style={{fontSize:F(13),color:"#94a3b8"}}>Sin reuniones asociadas.<br/>Sincroniza Google Calendar o agrega manualmente.</div>
-              </div>
-            )}
-            {eventsForProject(proj.id).sort((a,b)=>b.start.localeCompare(a.start)).map(e=>{
-              const isUpcoming = e.start >= new Date().toISOString().slice(0,10);
-              return(
-                <div key={e.id||e.title+e.start} style={{background:isUpcoming?"white":"#f8fafc",borderRadius:10,padding:14,border:`1px solid ${isUpcoming?"#bfdbfe":"#e2e8f0"}`,marginBottom:10,opacity:isUpcoming?1:0.7}}>
-                  <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
-                    <div style={{textAlign:"center",minWidth:40,flexShrink:0}}>
-                      <div style={{fontSize:F(18),fontWeight:800,color:isUpcoming?"#1d4ed8":"#94a3b8",lineHeight:1}}>
-                        {new Date(e.start+"T12:00:00").getDate()}
-                      </div>
-                      <div style={{fontSize:F(10),color:"#94a3b8",textTransform:"uppercase"}}>
-                        {MONTHS_ES[new Date(e.start+"T12:00:00").getMonth()+1].slice(0,3)}
-                      </div>
-                    </div>
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:F(13),fontWeight:700,color:"#0f172a",marginBottom:3}}>{e.title}</div>
-                      {e.time&&<div style={{fontSize:F(11),color:"#64748b",marginBottom:4}}>🕐 {e.time}</div>}
-                      {e.description&&<div style={{fontSize:F(12),color:"#475569",lineHeight:1.5,padding:"6px 10px",background:"#f8fafc",borderRadius:5,marginBottom:6}}>{e.description}</div>}
-                      <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                        {!isUpcoming&&<span style={{fontSize:F(10),color:"#94a3b8"}}>Pasada</span>}
-                        {isUpcoming&&<span style={{fontSize:F(10),padding:"2px 7px",borderRadius:5,background:"#eff6ff",color:"#1d4ed8",fontWeight:700}}>Próxima</span>}
-                        {e.url&&<a href={e.url} target="_blank" rel="noreferrer" style={{fontSize:F(11),color:"#1d4ed8",fontWeight:600}}>Ver evento →</a>}
-                        <button onClick={()=>saveCal(calendarEvents.filter(x=>(x.id||x.title+x.start)!==(e.id||e.title+e.start)))} style={{marginLeft:"auto",background:"none",border:"none",color:"#e2e8f0",cursor:"pointer",fontSize:F(14),padding:0}}>✕</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
             })}
-            <div style={{marginTop:12}}>
-              <div style={{fontSize:F(12),fontWeight:700,color:"#64748b",marginBottom:8}}>+ Agregar reunión manualmente</div>
-              <AddEventForm onAdd={(ev)=>saveCal([...calendarEvents,{...ev,id:uid(),projectId:proj.id}])} projects={projects} F={F} btn={btn} lbl={lbl} inp={inp} mob={mob}/>
-            </div>
           </div>
         )}
 
-        {tab==="licitacion"&&(
-          <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            <div style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0"}}>
-              <div style={{fontSize:F(11),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>ID Licitación — Mercado Público</div>
-              <div style={{display:"flex",gap:8,marginBottom:8}}>
-                <input value={proj.licitId||""} onChange={e=>saveP(projects.map(p=>p.id===proj.id?{...p,licitId:e.target.value}:p))} placeholder="Ej: 1431841-10-B226" style={{...inp,flex:1,fontFamily:"monospace",fontWeight:700}}/>
-                <button onClick={()=>fetchLicit(proj)} disabled={!proj.licitId||fetchingLicit===proj.id} style={{...btn(!proj.licitId||fetchingLicit===proj.id?"#94a3b8":"#7c3aed"),padding:"10px 16px",opacity:!proj.licitId?0.5:1}}>
-                  {fetchingLicit===proj.id?"⏳":"🔍"}{mob?"":" Consultar"}
-                </button>
-              </div>
-            </div>
-            {proj.licitId&&<LicitCard p={proj}/>}
-          </div>
-        )}
-
-        {tab==="notes"&&(
-          <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            <div style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0"}}>
-              <div style={{fontSize:F(11),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Notas de Gestión</div>
-              <textarea value={notesDraft} onChange={e=>setNotesDraft(e.target.value)} onBlur={()=>saveP(projects.map(p=>p.id===proj.id?{...p,notes:notesDraft}:p))} rows={8} placeholder="Ej: Reunión con GORE el 10 abril. Pendiente firma resolución..." style={{...inp,resize:"vertical",fontSize:F(13),lineHeight:1.6}}/>
-              <button onClick={genSummary} disabled={genSum||!notesDraft.trim()} style={{...btn(genSum||!notesDraft.trim()?"#94a3b8":"#1d4ed8"),width:"100%",marginTop:12,padding:14,opacity:genSum||!notesDraft.trim()?0.6:1}}>
-                {genSum?"✨ Generando…":"✨ Generar Resumen Ejecutivo con IA"}
-              </button>
-            </div>
-            {proj.aiSummary&&<div style={{background:"#eff6ff",borderRadius:10,padding:16,border:"1px solid #bfdbfe"}}><div style={{fontSize:F(11),fontWeight:700,color:"#1d4ed8",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>✨ Último Resumen</div><p style={{fontSize:F(13),color:"#1e3a5f",lineHeight:1.7,margin:0}}>{proj.aiSummary}</p><button onClick={genSummary} disabled={genSum} style={{...btn("#e0f2fe","#0369a1"),marginTop:12,fontSize:F(12),padding:"7px 14px"}}>🔄 Actualizar</button></div>}
-          </div>
-        )}
-
-        {tab==="docs"&&(
+        {/* EMAILS */}
+        {projTab === "emails" && (
           <div>
-            <button onClick={()=>fileRef.current?.click()} disabled={extracting} style={{...btn(extracting?"#94a3b8":"#0284c7"),width:"100%",marginBottom:16,padding:14}}>
-              {extracting?"⏳ Procesando con IA…":"📎 Subir Documento (PDF / Imagen)"}
-            </button>
-            {proj.docs.length===0&&!extracting&&<div style={{background:"white",borderRadius:10,padding:40,textAlign:"center",color:"#94a3b8",border:"2px dashed #e2e8f0"}}><div style={{fontSize:F(36),marginBottom:10}}>📄</div><div style={{fontSize:F(13)}}>Sin documentos.</div></div>}
-            {proj.docs.map(d=>{let ex={};try{ex=JSON.parse(d.extracted);}catch{}return(
-              <div key={d.id} style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0",marginBottom:12}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
-                  <div><div style={{fontWeight:700,fontSize:F(14)}}>📄 {d.name}</div><div style={{fontSize:F(11),color:"#94a3b8"}}>{d.docType} · {fDate(d.uploadedAt)}</div></div>
-                  <button onClick={()=>delDoc(d.id)} style={{background:"none",border:"none",color:"#cbd5e1",cursor:"pointer",fontSize:F(18),padding:0}}>✕</button>
+            <button onClick={() => setAddingEmail(true)} style={{ ...btn("#1d4ed8"), width: "100%", marginBottom: 14, padding: 13 }}>+ Registrar Correo</button>
+            {addingEmail && (
+              <div style={{ background: "white", borderRadius: 10, padding: 14, border: "1px solid #bfdbfe", marginBottom: 14 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                  <div><label style={lbl}>Remitente</label><input value={emailForm.from} onChange={e => setEmailForm(f => ({ ...f, from: e.target.value }))} style={inp} /></div>
+                  <div><label style={lbl}>Fecha</label><input type="date" value={emailForm.date} onChange={e => setEmailForm(f => ({ ...f, date: e.target.value }))} style={inp} /></div>
                 </div>
-                {d.summary&&<p style={{fontSize:F(13),color:"#334155",lineHeight:1.6,background:"#f8fafc",padding:"10px 12px",borderRadius:6,margin:"0 0 10px"}}>{d.summary}</p>}
-                {ex.dates?.length>0&&<div style={{marginBottom:8}}>{ex.dates.map((dt,i)=><div key={i} style={{fontSize:F(12),color:"#334155",padding:"2px 0"}}>📅 {typeof dt==="object"?`${dt.date} — ${dt.description}`:dt}</div>)}</div>}
-              </div>
-            );})}
-          </div>
-        )}
-
-        {tab==="tasks"&&(
-          <div>
-            <div style={{display:"flex",gap:8,marginBottom:16}}>
-              <input value={newTask} onChange={e=>setNewTask(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTask()} placeholder="Nueva tarea…" style={{...inp,flex:1}}/>
-              <button onClick={addTask} style={{...btn("#1d4ed8"),padding:"10px 18px",fontSize:F(16)}}>+</button>
-            </div>
-            {proj.tasks.length===0&&<div style={{background:"white",borderRadius:10,padding:40,textAlign:"center",color:"#94a3b8",border:"2px dashed #e2e8f0",fontSize:F(13)}}>Sin tareas.</div>}
-            {["pending","done"].map(st=>{const ts=proj.tasks.filter(t=>t.status===st);if(!ts.length)return null;return(
-              <div key={st} style={{marginBottom:14}}>
-                <div style={{fontSize:F(11),fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>{st==="pending"?"Pendientes":"Completadas"}</div>
-                {ts.map(t=>(
-                  <div key={t.id} style={{background:"white",borderRadius:8,padding:"13px 16px",border:"1px solid #e2e8f0",marginBottom:7,display:"flex",alignItems:"center",gap:10,opacity:st==="done"?0.55:1}}>
-                    <input type="checkbox" checked={st==="done"} onChange={()=>toggleTask(t.id)} style={{cursor:"pointer",width:20,height:20,accentColor:"#1d4ed8",flexShrink:0}}/>
-                    <span style={{fontSize:F(14),flex:1,textDecoration:st==="done"?"line-through":"none",color:st==="done"?"#94a3b8":"#1e293b",lineHeight:1.4}}>{t.text}</span>
-                    <button onClick={()=>delTask(t.id)} style={{background:"none",border:"none",color:"#e2e8f0",cursor:"pointer",fontSize:F(16),padding:0}}>✕</button>
-                  </div>
-                ))}
-              </div>
-            );})}
-          </div>
-        )}
-
-        {tab==="emails"&&(
-          <div>
-            <button onClick={()=>setAddingEmail(true)} style={{...btn("#1d4ed8"),width:"100%",marginBottom:16,padding:14}}>+ Registrar Correo</button>
-            {addingEmail&&(
-              <div style={{background:"white",borderRadius:10,padding:16,border:"1px solid #bfdbfe",marginBottom:16}}>
-                <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:12,marginBottom:12}}>
-                  <div><label style={lbl}>Remitente</label><input value={emailForm.from} onChange={e=>setEmailForm(f=>({...f,from:e.target.value}))} style={inp} placeholder="nombre@dominio.cl"/></div>
-                  <div><label style={lbl}>Fecha</label><input type="date" value={emailForm.date} onChange={e=>setEmailForm(f=>({...f,date:e.target.value}))} style={inp}/></div>
+                <div style={{ marginBottom: 10 }}><label style={lbl}>Asunto</label><input value={emailForm.subject} onChange={e => setEmailForm(f => ({ ...f, subject: e.target.value }))} style={inp} /></div>
+                <div style={{ marginBottom: 12 }}><label style={lbl}>Contenido</label><textarea value={emailForm.body} onChange={e => setEmailForm(f => ({ ...f, body: e.target.value }))} rows={3} style={{ ...inp, resize: "vertical" }} /></div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={addEmail} style={btn("#1d4ed8")}>Guardar</button>
+                  <button onClick={() => setAddingEmail(false)} style={btn("#f1f5f9", "#374151")}>Cancelar</button>
                 </div>
-                <div style={{marginBottom:12}}><label style={lbl}>Asunto</label><input value={emailForm.subject} onChange={e=>setEmailForm(f=>({...f,subject:e.target.value}))} style={inp}/></div>
-                <div style={{marginBottom:14}}><label style={lbl}>Contenido</label><textarea value={emailForm.body} onChange={e=>setEmailForm(f=>({...f,body:e.target.value}))} rows={4} style={{...inp,resize:"vertical"}}/></div>
-                <div style={{display:"flex",gap:8}}><button onClick={saveEmail} style={btn("#1d4ed8")}>Guardar</button><button onClick={()=>setAddingEmail(false)} style={btn("#f1f5f9","#374151")}>Cancelar</button></div>
               </div>
             )}
-            {proj.emails.length===0&&!addingEmail&&<div style={{background:"white",borderRadius:10,padding:40,textAlign:"center",color:"#94a3b8",border:"2px dashed #e2e8f0"}}><div style={{fontSize:F(30),marginBottom:8}}>✉️</div><div style={{fontSize:F(13)}}>Sin correos.</div></div>}
-            {proj.emails.map(e=>(
-              <div key={e.id} style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0",marginBottom:10}}>
-                <div style={{display:"flex",justifyContent:"space-between"}}>
-                  <div><div style={{fontWeight:700,fontSize:F(14)}}>✉️ {e.subject}</div><div style={{fontSize:F(11),color:"#94a3b8",marginTop:2}}>De: {e.from} · {fDate(e.date)}</div></div>
-                  <button onClick={()=>delEmail(e.id)} style={{background:"none",border:"none",color:"#cbd5e1",cursor:"pointer",fontSize:F(18),padding:0}}>✕</button>
+            {proj.emails.length === 0 && !addingEmail && <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", border: "2px dashed #e2e8f0", borderRadius: 10, fontSize: F(12) }}>Sin correos registrados</div>}
+            {proj.emails.map(e => (
+              <div key={e.id} style={{ background: "white", borderRadius: 10, padding: 14, border: "1px solid #e2e8f0", marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <div><div style={{ fontWeight: 700, fontSize: F(13) }}>✉️ {e.subject}</div><div style={{ fontSize: F(10), color: "#94a3b8", marginTop: 2 }}>De: {e.from} · {fDate(e.date)}</div></div>
+                  <button onClick={() => delEmail(e.id)} style={{ background: "none", border: "none", color: "#cbd5e1", cursor: "pointer", fontSize: F(16) }}>✕</button>
                 </div>
-                {e.body&&<p style={{fontSize:F(13),color:"#334155",marginTop:10,lineHeight:1.6,borderTop:"1px solid #f8fafc",paddingTop:10}}>{e.body}</p>}
+                {e.body && <p style={{ fontSize: F(12), color: "#334155", marginTop: 10, lineHeight: 1.5, borderTop: "1px solid #f8fafc", paddingTop: 10 }}>{e.body}</p>}
               </div>
             ))}
           </div>
@@ -2080,174 +1338,130 @@ export default function Page(){
     </div>
   );
 
-
-  // ── CHAT ──────────────────────────────────────────
-  const chatPanel=(
-    <div style={{display:"flex",flexDirection:"column",height:mob?"calc(100vh - 58px - 58px)":"100%",background:"white"}}>
-      <div style={{padding:"10px 14px",background:"#f8fafc",borderBottom:"1px solid #e2e8f0",flexShrink:0}}>
-        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-          {["¿Qué seguimientos están críticos?","Resumen para Alcalde","¿Cuándo cierra licitación?","Estado cotizaciones SNSM2025"].map(q=>(
-            <button key={q} onClick={()=>setInput(q)} style={{fontSize:F(11),padding:"5px 11px",borderRadius:12,background:"white",border:"1px solid #e2e8f0",cursor:"pointer",color:"#475569"}}>{q}</button>
+  // ══════════════════════════════════════════════════
+  // CHAT
+  // ══════════════════════════════════════════════════
+  const chatView = (
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
+      <div style={{ padding: "8px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", flexShrink: 0 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+          {["¿Qué urgencias tengo hoy?", "¿Qué empresas no han cotizado SNSM?", "Resumen cartera p5", "Días extras acumulados"].map(q => (
+            <button key={q} onClick={() => setChatInput(q)} style={{ fontSize: F(10), padding: "4px 9px", borderRadius: 10, background: "white", border: "1px solid #e2e8f0", cursor: "pointer", color: "#475569" }}>{q}</button>
           ))}
         </div>
       </div>
-      <div ref={chatRef} style={{flex:1,...scroll,padding:14,display:"flex",flexDirection:"column",gap:10}}>
-        {msgs.map((m,i)=>(
-          <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
-            <div style={{maxWidth:"86%",padding:"11px 14px",borderRadius:12,background:m.role==="user"?"#1d4ed8":"#f1f5f9",color:m.role==="user"?"white":"#1e293b",fontSize:F(13),lineHeight:1.6,whiteSpace:"pre-wrap",borderBottomRightRadius:m.role==="user"?2:12,borderBottomLeftRadius:m.role==="user"?12:2}}>{m.content}</div>
+      <div ref={chatRef} style={{ flex: 1, ...scroll, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        {msgs.map((m, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
+            <div style={{ maxWidth: "86%", padding: "10px 13px", borderRadius: 10, background: m.role === "user" ? "#1d4ed8" : "#f1f5f9", color: m.role === "user" ? "white" : "#1e293b", fontSize: F(12), lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{m.content}</div>
           </div>
         ))}
-        {loading&&<div style={{display:"flex"}}><div style={{padding:"11px 14px",borderRadius:12,background:"#f1f5f9",fontSize:F(12),color:"#94a3b8"}}>Consultando cartera…</div></div>}
+        {chatLoading && <div style={{ display: "flex" }}><div style={{ padding: "10px 13px", borderRadius: 10, background: "#f1f5f9", fontSize: F(11), color: "#94a3b8" }}>Pensando…</div></div>}
       </div>
-      <div style={{padding:"12px 14px",borderTop:"1px solid #e2e8f0",display:"flex",gap:8,flexShrink:0,paddingBottom:mob?"calc(12px + env(safe-area-inset-bottom))":"12px"}}>
-        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} placeholder="Pregunta sobre tus proyectos…" style={{...inp,flex:1}}/>
-        <button onClick={send} disabled={loading} style={{...btn("#1d4ed8"),padding:"11px 16px",fontSize:F(16),opacity:loading?0.5:1,flexShrink:0}}>→</button>
-      </div>
-    </div>
-  );
-
-  // ── MODAL ─────────────────────────────────────────
-  const modal=showForm&&(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:mob?"flex-end":"center",justifyContent:"center",zIndex:300}}>
-      <div style={{background:"white",borderRadius:mob?"16px 16px 0 0":"12px",padding:22,width:mob?"100%":"520px",maxHeight:"92vh",...scroll,boxSizing:"border-box"}}>
-        <div style={{fontWeight:700,fontSize:F(16),color:"#0f172a",marginBottom:20}}>{editId?"Editar Proyecto":"Nuevo Proyecto"}</div>
-        <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:16}}>
-          <div><label style={lbl}>Nombre *</label><input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} style={inp}/></div>
-          <div><label style={lbl}>Presupuesto (CLP)</label><input type="number" value={form.budget} onChange={e=>setForm(f=>({...f,budget:e.target.value}))} style={inp} placeholder="Ej: 914000000"/></div>
-          {form.budget&&Number(form.budget)>0&&<div style={{fontSize:F(13),color:"#1d4ed8",fontWeight:700,padding:"5px 12px",background:"#eff6ff",borderRadius:6}}>→ {fCLP(Number(form.budget))} CLP</div>}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <div><label style={lbl}>Financiamiento</label><select value={form.financier} onChange={e=>setForm(f=>({...f,financier:e.target.value}))} style={inp}>{FINANCIERS.map(s=><option key={s}>{s}</option>)}</select></div>
-            <div><label style={lbl}>Vencimiento</label><input type="date" value={form.deadline} onChange={e=>setForm(f=>({...f,deadline:e.target.value}))} style={inp}/></div>
-          </div>
-          <div><label style={lbl}>Programa / Fondo</label><input value={form.program||""} onChange={e=>setForm(f=>({...f,program:e.target.value}))} style={inp} placeholder="Ej: FNSP"/></div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <div><label style={lbl}>Etapa</label><select value={form.stage} onChange={e=>setForm(f=>({...f,stage:e.target.value}))} style={inp}>{STAGES.map(s=><option key={s}>{s}</option>)}</select></div>
-            <div><label style={lbl}>Estado</label><select value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))} style={inp}>{STATUSES.map(s=><option key={s}>{s}</option>)}</select></div>
-          </div>
-          <div><label style={lbl}>ID Licitación MP (opcional)</label><input value={form.licitId||""} onChange={e=>setForm(f=>({...f,licitId:e.target.value}))} style={{...inp,fontFamily:"monospace"}} placeholder="Ej: 1431841-10-B226"/></div>
-          <div><label style={lbl}>Descripción Técnica</label><textarea value={form.desc} onChange={e=>setForm(f=>({...f,desc:e.target.value}))} rows={3} style={{...inp,resize:"vertical"}}/></div>
-        </div>
-        <div style={{display:"flex",gap:10}}>
-          <button onClick={()=>{setShowForm(false);setForm(EF);setEditId(null);}} style={{...btn("#f1f5f9","#374151"),flex:1}}>Cancelar</button>
-          <button onClick={()=>{
-            if(!form.name.trim())return;
-            const upd={...form,id:editId||uid(),budget:parseFloat(form.budget)||0,docs:form.docs||[],emails:form.emails||[],tasks:form.tasks||[],notes:form.notes||"",aiSummary:form.aiSummary||"",licitData:form.licitData||null,licitChecked:form.licitChecked||""};
-            saveP(editId?projects.map(p=>p.id===editId?upd:p):[...projects,upd]);
-            setSel(upd.id);setTab("overview");setView("project");setShowForm(false);setForm(EF);setEditId(null);
-          }} style={{...btn("#1d4ed8"),flex:1}}>Guardar</button>
-        </div>
+      <div style={{ padding: "10px 12px", borderTop: "1px solid #e2e8f0", display: "flex", gap: 8, flexShrink: 0, paddingBottom: mob ? "calc(10px + env(safe-area-inset-bottom))" : "10px" }}>
+        <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendChat()} placeholder="Pregunta sobre tus proyectos…" style={{ ...inp, flex: 1 }} />
+        <button onClick={sendChat} disabled={chatLoading} style={{ ...btn("#1d4ed8"), padding: "10px 14px", fontSize: F(15), opacity: chatLoading ? 0.5 : 1 }}>→</button>
       </div>
     </div>
   );
 
-  // ── MOBILE NAV ────────────────────────────────────
-  const mobileNav=mob&&(
-    <div style={{position:"fixed",bottom:0,left:0,right:0,background:"white",borderTop:"1px solid #e2e8f0",display:"flex",zIndex:100,paddingBottom:"env(safe-area-inset-bottom)"}}>
-      {[["dash","📊","Dashboard"],["projects","📁","Proyectos"],["calendar","📅","Agenda"],["chat","🤖","Asistente"]].map(([v,icon,label])=>(
-        <button key={v} onClick={()=>{if(v==="calendar"){setView("dash");setMainTab("calendar");}else{setView(v);setMainTab("dash");}}} style={{flex:1,padding:"12px 4px 8px",background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-          <span style={{fontSize:F(20)}}>{icon}</span>
-          <span style={{fontSize:F(11),fontWeight:(view===v||(v==="calendar"&&mainTab==="calendar"))?700:400,color:(view===v||(v==="calendar"&&mainTab==="calendar"))?"#1d4ed8":"#94a3b8"}}>{label}</span>
-          {(view===v||(v==="calendar"&&mainTab==="calendar"))&&<div style={{width:22,height:2,background:"#1d4ed8",borderRadius:2}}/>}
+  // ══════════════════════════════════════════════════
+  // MODAL — CRUD PROYECTO
+  // ══════════════════════════════════════════════════
+  const modal = showForm && (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: mob ? "flex-end" : "center", justifyContent: "center", zIndex: 300 }}>
+      <div style={{ background: "white", borderRadius: mob ? "16px 16px 0 0" : "12px", padding: 20, width: mob ? "100%" : "500px", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box" }}>
+        <div style={{ fontWeight: 700, fontSize: F(15), color: "#0f172a", marginBottom: 16 }}>{editId ? "Editar Proyecto" : "Nuevo Proyecto"}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+          <div><label style={lbl}>Nombre *</label><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inp} /></div>
+          <div><label style={lbl}>Presupuesto (CLP)</label><input type="number" value={form.budget} onChange={e => setForm(f => ({ ...f, budget: e.target.value }))} style={inp} placeholder="Ej: 100000000" /></div>
+          {form.budget && Number(form.budget) > 0 && <div style={{ fontSize: F(12), color: "#1d4ed8", fontWeight: 700, padding: "4px 10px", background: "#eff6ff", borderRadius: 6 }}>→ {fCLP(Number(form.budget))} CLP</div>}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div><label style={lbl}>Financiamiento</label><select value={form.financier} onChange={e => setForm(f => ({ ...f, financier: e.target.value }))} style={inp}>{FINANCIERS.map(x => <option key={x}>{x}</option>)}</select></div>
+            <div><label style={lbl}>Vencimiento</label><input type="date" value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))} style={inp} /></div>
+          </div>
+          <div><label style={lbl}>Programa / Fondo</label><input value={form.program || ""} onChange={e => setForm(f => ({ ...f, program: e.target.value }))} style={inp} placeholder="Ej: SNSM 2025" /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div><label style={lbl}>Etapa</label><select value={form.stage} onChange={e => setForm(f => ({ ...f, stage: e.target.value }))} style={inp}>{STAGES.map(x => <option key={x}>{x}</option>)}</select></div>
+            <div><label style={lbl}>Estado</label><select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} style={inp}>{STATUSES.map(x => <option key={x}>{x}</option>)}</select></div>
+          </div>
+          <div><label style={lbl}>ID Licitación MP (opcional)</label><input value={form.licitId || ""} onChange={e => setForm(f => ({ ...f, licitId: e.target.value }))} style={{ ...inp, fontFamily: "monospace" }} placeholder="Ej: 1431841-10-B226" /></div>
+          <div><label style={lbl}>Descripción técnica</label><textarea value={form.desc} onChange={e => setForm(f => ({ ...f, desc: e.target.value }))} rows={3} style={{ ...inp, resize: "vertical" }} /></div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => { setShowForm(false); setEditId(null); }} style={{ ...btn("#f1f5f9", "#374151"), flex: 1 }}>Cancelar</button>
+          {editId && <button onClick={() => { if (window.confirm("¿Eliminar este proyecto?")) { setProjects(prev => prev.filter(p => p.id !== editId)); setShowForm(false); setEditId(null); setSel(null); setView("dash"); } }} style={{ ...btn("#fef2f2", "#dc2626"), flex: 0, fontSize: F(11) }}>🗑️</button>}
+          <button onClick={() => {
+            if (!form.name?.trim()) return;
+            const p = { ...form, id: editId || uid(), budget: parseFloat(form.budget) || 0, docs: form.docs || [], emails: form.emails || [], tasks: form.tasks || [], notes: form.notes || "", aiSummary: form.aiSummary || "", licitData: form.licitData || null, licitChecked: form.licitChecked || "" };
+            setProjects(prev => editId ? prev.map(x => x.id === editId ? p : x) : [...prev, p]);
+            setSel(p.id); setProjTab("overview"); setView("project"); setShowForm(false); setEditId(null);
+          }} style={{ ...btn("#1d4ed8"), flex: 1 }}>Guardar</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ══════════════════════════════════════════════════
+  // MOBILE NAV
+  // ══════════════════════════════════════════════════
+  const mobileNav = mob && (
+    <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "white", borderTop: "1px solid #e2e8f0", display: "flex", zIndex: 100, paddingBottom: "env(safe-area-inset-bottom)" }}>
+      {[["dash", "📊", "Inicio"], ["projects", "📁", "Proyectos"], ["chat", "🤖", "Asistente"]].map(([v, icon, label]) => (
+        <button key={v} onClick={() => { if (v === "projects") { setSel(null); setView("dash"); } else setView(v === "projects" ? "dash" : v); }} style={{ flex: 1, padding: "10px 4px 8px", background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+          <span style={{ fontSize: F(18) }}>{icon}</span>
+          <span style={{ fontSize: F(10), fontWeight: view === v ? 700 : 400, color: view === v ? "#1d4ed8" : "#94a3b8" }}>{label}</span>
+          {view === v && <div style={{ width: 20, height: 2, background: "#1d4ed8", borderRadius: 2 }} />}
         </button>
       ))}
     </div>
   );
 
-  // ── SIDEBAR DESKTOP ───────────────────────────────
-  const sidebar = !mob && (
-    <div style={{width:270,background:"#0f172a",...scroll,flexShrink:0,display:"flex",flexDirection:"column"}}>
-      <div style={{padding:"10px 8px"}}>
-        <button onClick={()=>{setSel(null);setView("dash");setMainTab("dash");}} style={{width:"100%",padding:"11px 14px",borderRadius:7,background:(view==="dash"&&mainTab==="dash")?"#1e3a5f":"transparent",color:(view==="dash"&&mainTab==="dash")?"#93c5fd":"#64748b",border:"none",cursor:"pointer",textAlign:"left",fontSize:F(13),fontWeight:600,display:"flex",alignItems:"center",gap:8}}>📊 Dashboard General</button>
-        {/* Nueva entrada: Respondidas */}
-        <button onClick={()=>{setSel(null);setView("dash");setMainTab("answered");}} style={{width:"100%",padding:"11px 14px",borderRadius:7,background:mainTab==="answered"?"#1e3a5f":"transparent",color:mainTab==="answered"?"#93c5fd":"#64748b",border:"none",cursor:"pointer",textAlign:"left",fontSize:F(13),fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-          <span>✅ Solicitudes Respondidas</span>
-          {answeredRequests.length>0&&<span style={{fontSize:F(10),background:"#22c55e33",color:"#22c55e",padding:"1px 7px",borderRadius:10,fontWeight:700}}>{answeredRequests.length}</span>}
-        </button>
-
-        {/* Nueva entrada: Calendario */}
-        <button onClick={()=>{setSel(null);setView("dash");setMainTab("calendar");}} style={{width:"100%",padding:"11px 14px",borderRadius:7,background:mainTab==="calendar"?"#1e3a5f":"transparent",color:mainTab==="calendar"?"#93c5fd":"#64748b",border:"none",cursor:"pointer",textAlign:"left",fontSize:F(13),fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-          <span>📅 Calendario</span>
-          {calendarEvents.filter(e=>e.start>=new Date().toISOString().slice(0,10)).length>0&&<span style={{fontSize:F(10),background:"#3b82f633",color:"#93c5fd",padding:"1px 7px",borderRadius:10,fontWeight:700}}>{calendarEvents.filter(e=>e.start>=new Date().toISOString().slice(0,10)).length}</span>}
-        </button>
-      </div>
-      {pendingGf.length>0&&(
-        <div style={{margin:"0 10px 6px",padding:"10px 12px",background:"#7f1d1d22",borderRadius:7,border:"1px solid #ef444433"}}>
-          <div style={{fontSize:F(10),color:"#fca5a5",fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>📬 Seguimientos</div>
-          {criticalGf.length>0&&<div style={{fontSize:F(12),color:"#ef4444",fontWeight:700}}>🔴 {criticalGf.length} crítico(s)</div>}
-          <div style={{fontSize:F(11),color:"#94a3b8"}}>{pendingGf.length} pendiente(s)</div>
-        </div>
-      )}
-      <div style={{padding:"0 8px",flex:1}}>
-        <div style={{fontSize:F(10),color:"#334155",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",padding:"10px 12px 6px"}}>Proyectos</div>
-        {projects.map(p=>{
-          const projEvs=eventsForProject(p.id).filter(e=>e.start>=new Date().toISOString().slice(0,10));
-          return(
-          <button key={p.id} onClick={()=>{setSel(p.id);setTab("overview");setView("project");setMainTab("dash");}} style={{width:"100%",padding:"11px 14px",borderRadius:7,background:sel===p.id?"#1e3a5f":"transparent",border:sel===p.id?"1px solid #1d4ed8":"1px solid transparent",cursor:"pointer",textAlign:"left",marginBottom:3}}>
-            <div style={{fontSize:F(12),fontWeight:sel===p.id?700:500,color:sel===p.id?"#e2e8f0":"#94a3b8",lineHeight:1.3,marginBottom:5}}>{p.name}</div>
-            <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-              <span style={{fontSize:F(10),padding:"2px 7px",borderRadius:8,background:SC[p.status]+"25",color:SC[p.status],fontWeight:700}}>{p.status}</span>
-              <span style={{fontSize:F(10),padding:"2px 6px",borderRadius:8,background:"#1e293b",color:"#64748b"}}>{p.financier}</span>
-              {projEvs.length>0&&<span style={{fontSize:F(10),padding:"2px 6px",borderRadius:8,background:"#172554",color:"#93c5fd"}}>📅 {projEvs.length}</span>}
-            </div>
-          </button>
-        );})}
-      </div>
-      <div style={{padding:"10px 8px"}}><button onClick={()=>{setForm(EF);setEditId(null);setShowForm(true);}} style={{...btn("#1d4ed8"),width:"100%",fontSize:F(12)}}>+ Nuevo Proyecto</button></div>
-    </div>
-  );
-
-  // ── RENDER PRINCIPAL ──────────────────────────────
-  return(
-    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:"#f1f5f9",overflow:"hidden"}}>
+  // ══════════════════════════════════════════════════
+  // RENDER PRINCIPAL
+  // ══════════════════════════════════════════════════
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#f1f5f9", overflow: "hidden" }}>
       {header}
-      <div style={{flex:1,overflow:"hidden",display:"flex"}}>
-        {mob?(
-          <div style={{flex:1,...scroll}}>
-            {view==="dash"&&mainTab==="dash"&&dashContent}
-            {view==="dash"&&mainTab==="answered"&&<AnsweredPanel/>}
-            {view==="dash"&&mainTab==="calendar"&&<CalendarPanel/>}
-            {view==="projects"&&(
-              <div style={{padding:"16px 16px 90px"}}>
-                {projects.map(p=>(
-                  <div key={p.id} onClick={()=>{setSel(p.id);setTab("overview");setView("project");}} style={{background:"white",borderRadius:10,padding:16,border:"1px solid #e2e8f0",marginBottom:12,borderLeft:`4px solid ${SC[p.status]}`,cursor:"pointer"}}>
-                    <div style={{fontWeight:700,fontSize:F(15),color:"#0f172a",marginBottom:8}}>{p.name}</div>
-                    <div style={{display:"flex",gap:6,justifyContent:"space-between",alignItems:"center"}}>
-                      <div style={{display:"flex",gap:6}}>
-                        <span style={{fontSize:F(11),padding:"3px 10px",borderRadius:8,background:SC[p.status]+"18",color:SC[p.status],fontWeight:700}}>{p.status}</span>
-                        <span style={{fontSize:F(11),padding:"3px 9px",borderRadius:8,background:"#e0f2fe",color:"#0369a1"}}>{p.financier}</span>
+      <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        {sidebar}
+        <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          {mob ? (
+            <div style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+              {view === "dash" && dashView}
+              {view === "project" && proj && projView}
+              {view === "chat" && chatView}
+              {view === "dash" && !proj && mob && (
+                <div style={{ padding: "0 16px 16px" }}>
+                  {/* Lista proyectos en mobile */}
+                  {projects.map(p => (
+                    <div key={p.id + "_mob"} onClick={() => { setSel(p.id); setProjTab("overview"); setView("project"); }} style={{ background: "white", borderRadius: 10, padding: 14, border: "1px solid #e2e8f0", marginBottom: 10, borderLeft: `4px solid ${SC[p.status]}`, cursor: "pointer" }}>
+                      <div style={{ fontWeight: 700, fontSize: F(13), marginBottom: 4 }}>{p.name}</div>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: F(10), padding: "2px 8px", borderRadius: 8, background: SC[p.status] + "18", color: SC[p.status], fontWeight: 700 }}>{p.status}</span>
+                        <span style={{ fontSize: F(13), fontWeight: 800, color: "#1d4ed8" }}>{fCLP(p.budget)}</span>
                       </div>
-                      <span style={{fontSize:F(14),fontWeight:800,color:"#1d4ed8"}}>{fCLP(p.budget)}</span>
                     </div>
-                  </div>
-                ))}
-                <button onClick={()=>{setForm(EF);setEditId(null);setShowForm(true);}} style={{...btn("#0f172a"),width:"100%",padding:14}}>+ Nuevo Proyecto</button>
-              </div>
-            )}
-            {view==="project"&&proj&&projDetail}
-            {view==="chat"&&chatPanel}
-          </div>
-        ):(
-          <>
-            {sidebar}
-            <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-              {/* Render según mainTab */}
-              {view!=="project"&&view!=="chat"&&mainTab==="dash"&&<div style={{flex:1,...scroll}}>{dashContent}</div>}
-              {view!=="project"&&view!=="chat"&&mainTab==="answered"&&<div style={{flex:1,...scroll}}><AnsweredPanel/></div>}
-
-              {view!=="project"&&view!=="chat"&&mainTab==="calendar"&&<div style={{flex:1,...scroll}}><CalendarPanel/></div>}
-              {view==="project"&&proj&&projDetail}
-            </div>
-            {view==="chat"&&(
-              <div style={{width:390,borderLeft:"1px solid #e2e8f0",display:"flex",flexDirection:"column",flexShrink:0}}>
-                <div style={{padding:"13px 18px",background:"#0f172a",color:"white",flexShrink:0}}>
-                  <div style={{fontWeight:700,fontSize:F(13)}}>🤖 Asistente SECPLA</div>
-                  <div style={{fontSize:F(11),color:"#64748b",marginTop:2}}>Cartera · Gmail · Licitaciones · Docs</div>
+                  ))}
                 </div>
-                {chatPanel}
-              </div>
-            )}
-          </>
-        )}
+              )}
+            </div>
+          ) : (
+            <>
+              {(view === "dash" || !view) && <div style={{ flex: 1, overflowY: "auto" }}>{dashView}</div>}
+              {view === "project" && proj && projView}
+              {view === "chat" && (
+                <div style={{ width: 380, borderLeft: "1px solid #e2e8f0", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+                  <div style={{ padding: "11px 16px", background: "#0f172a", color: "white", flexShrink: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: F(12) }}>🤖 Asistente SECPLA</div>
+                    <div style={{ fontSize: F(10), color: "#64748b", marginTop: 2 }}>Cartera · Seguimientos · Cotizaciones</div>
+                  </div>
+                  {chatView}
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
       {mobileNav}
       {modal}
