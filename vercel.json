@@ -1,3 +1,12 @@
 {
-  "framework": "nextjs"
+  "crons": [
+    { "path": "/api/cron/sync?type=clock",  "schedule": "0 12,17,21 * * 1-5" },
+    { "path": "/api/cron/sync?type=gmail",  "schedule": "0 12,16 * * 1-5" },
+    { "path": "/api/cron/sync?type=cotiz",  "schedule": "30 13,18 * * 1-5" },
+    { "path": "/api/cron/sync?type=health", "schedule": "0 */6 * * *" }
+  ],
+  "functions": {
+    "app/api/ai/route.js":            { "maxDuration": 60 },
+    "app/api/cron/sync/route.js":     { "maxDuration": 60 }
+  }
 }
