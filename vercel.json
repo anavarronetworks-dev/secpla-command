@@ -3,10 +3,11 @@
     { "path": "/api/cron/sync?type=gmail",  "schedule": "0 12,13,14,15,16,17,18,19,20,21,22 * * 1-5" },
     { "path": "/api/cron/sync?type=clock",  "schedule": "0 12,17,21 * * 1-5" },
     { "path": "/api/cron/sync?type=cotiz",  "schedule": "0 13,18 * * 1-5" },
-    { "path": "/api/cron/sync?type=health", "schedule": "0 */6 * * *" }
+    { "path": "/api/cron/sync?type=weekend","schedule": "0 14 * * 0,6" }
   ],
   "functions": {
-    "app/api/ai/route.js":        { "maxDuration": 60 },
-    "app/api/cron/sync/route.js": { "maxDuration": 60 }
+    "app/api/ai/route.js":         { "maxDuration": 60 },
+    "app/api/cron/sync/route.js":  { "maxDuration": 60 },
+    "app/api/state/route.js":      { "maxDuration": 10 }
   }
 }
